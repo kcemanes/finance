@@ -149,7 +149,9 @@ function describe(op: OutboxOp, message: string) {
 function apply(op: OutboxOp) {
   switch (op.kind) {
     case 'category.create':
-      return supabase.from('categories').upsert(op.row, { onConflict: 'id' })
+      return supabase
+        .from('expense_categories')
+        .upsert(op.row, { onConflict: 'id' })
     case 'source.create':
       return supabase
         .from('income_sources')
@@ -179,10 +181,10 @@ async function mergeDuplicateName(
   remaining: OutboxOp[],
 ): Promise<boolean> {
   const group: GroupName = op.kind === 'source.create' ? 'source' : 'category'
-  const { parent, fk } = GROUPS[group]
+  const { table, fk } = GROUPS[group]
 
   const { data, error } = await supabase
-    .from(parent)
+    .from(table)
     .select('id')
     .eq('name', op.row.name as string)
     .maybeSingle()
@@ -277,7 +279,7 @@ async function selectAll(table: string, columns: string): Promise<Record<string,
 
 async function pull(userId: string): Promise<RemoteRows> {
   const [categories, expenses, sources, incomes] = await Promise.all([
-    selectAll('categories', 'id, name, monthly_budget'),
+    selectAll('expense_categories', 'id, name, monthly_budget'),
     selectAll('expenses', 'id, category_id, spent_on, amount, note, created_at'),
     selectAll('income_sources', 'id, name, expected_monthly'),
     selectAll('incomes', 'id, source_id, received_on, amount, note, created_at'),

@@ -75,15 +75,29 @@ export type GroupName = 'category' | 'source'
 /**
  * The two parent/child pairs, for the duplicate-name repair.
  *
- * `parent` doubles as the Postgres table name, which is what lets ./sync look
- * up the row that won a name collision without a second mapping.
+ * `parent` and `child` are local store names; `table` is the Postgres name of
+ * the parent, which is what lets ./sync look up the row that won a name
+ * collision. `parent` used to serve as both, but the categories table was
+ * renamed to `expense_categories` on the server while the local store kept
+ * the name it was created under, so the remote name is now carried here
+ * rather than inferred.
  */
 export const GROUPS: Record<
   GroupName,
-  { parent: db.StoreName; child: db.StoreName; fk: string }
+  { parent: db.StoreName; table: string; child: db.StoreName; fk: string }
 > = {
-  category: { parent: 'categories', child: 'expenses', fk: 'category_id' },
-  source: { parent: 'income_sources', child: 'incomes', fk: 'source_id' },
+  category: {
+    parent: 'categories',
+    table: 'expense_categories',
+    child: 'expenses',
+    fk: 'category_id',
+  },
+  source: {
+    parent: 'income_sources',
+    table: 'income_sources',
+    child: 'incomes',
+    fk: 'source_id',
+  },
 }
 
 /**

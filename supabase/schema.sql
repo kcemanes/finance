@@ -2,15 +2,33 @@
 -- Run this in Supabase: SQL Editor > New query > paste > Run.
 -- Written to be safe to re-run.
 --
--- Money moves in two directions and gets a table pair each: categories +
+-- Money moves in two directions and gets a table pair each: expense_categories +
 -- expenses for money out, income_sources + incomes for money in. Both
 -- amount columns stay strictly positive and the *table* carries the
 -- direction, so no aggregation anywhere has to reason about signs.
 
 -- ---------------------------------------------------------------------------
--- Categories
+-- Rename: `categories` became `expense_categories`.
+--
+-- Ahead of the create below, so a project that already ran an earlier version
+-- of this file keeps its rows. The expenses foreign key, its indexes and the
+-- unique constraints all follow the table itself rather than its name, so
+-- nothing else has to be rebuilt — only the RLS policy is named after the old
+-- table, and it is dropped further down.
 -- ---------------------------------------------------------------------------
-create table if not exists public.categories (
+do $$
+begin
+  if to_regclass('public.categories') is not null
+     and to_regclass('public.expense_categories') is null then
+    alter table public.categories rename to expense_categories;
+  end if;
+end
+$$;
+
+-- ---------------------------------------------------------------------------
+-- Expense categories
+-- ---------------------------------------------------------------------------
+create table if not exists public.expense_categories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   name text not null check (char_length(btrim(name)) between 1 and 40),
@@ -39,7 +57,7 @@ create table if not exists public.expenses (
   -- alone would let a crafted request attach someone else's category id.
   constraint expenses_category_fkey
     foreign key (user_id, category_id)
-    references public.categories (user_id, id)
+    references public.expense_categories (user_id, id)
     on update cascade
     on delete restrict
 );
@@ -53,9 +71,9 @@ create index if not exists expenses_user_category_idx
 -- ---------------------------------------------------------------------------
 -- Income sources
 --
--- The mirror of categories, with one meaning inverted: monthly_budget is a
--- ceiling you would rather stay under, expected_monthly is a floor you would
--- rather clear. Same shape, opposite test — anything comparing an amount
+-- The mirror of expense_categories, with one meaning inverted: monthly_budget
+-- is a ceiling you would rather stay under, expected_monthly is a floor you
+-- would rather clear. Same shape, opposite test — anything comparing an amount
 -- against it has to know which of the two it is holding.
 -- ---------------------------------------------------------------------------
 create table if not exists public.income_sources (
@@ -99,14 +117,17 @@ create index if not exists incomes_user_source_idx
 -- Row Level Security: every row is private to the user that owns it.
 -- Without this, the publishable key in the browser can read the whole table.
 -- ---------------------------------------------------------------------------
-alter table public.categories enable row level security;
+alter table public.expense_categories enable row level security;
 alter table public.expenses enable row level security;
 alter table public.income_sources enable row level security;
 alter table public.incomes enable row level security;
 
-drop policy if exists "categories are private" on public.categories;
-create policy "categories are private"
-  on public.categories
+-- The policy the rename above left behind, still carrying the old table's name.
+drop policy if exists "categories are private" on public.expense_categories;
+
+drop policy if exists "expense categories are private" on public.expense_categories;
+create policy "expense categories are private"
+  on public.expense_categories
   for all
   to authenticated
   using (auth.uid() = user_id)
