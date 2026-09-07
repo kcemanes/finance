@@ -66,12 +66,17 @@ function EntryForm({
   // holding a value that matches none of its options — a picker that shows one
   // thing while its state says another, and submits the empty string.
   //
+  // NEW_GROUP has to be admitted explicitly: it is a real option but is never
+  // one of `groups`, so testing membership alone would snap the create choice
+  // back to the first group and the name field would never open.
+  //
   // With nothing to pick at all the form opens on the create field instead.
   // That is the normal case for income: a new account gets starter categories
   // but no sources.
-  const selected = groups.some((group) => group.id === picked)
-    ? picked
-    : (groups[0]?.id ?? NEW_GROUP)
+  const selected =
+    picked === NEW_GROUP || groups.some((group) => group.id === picked)
+      ? picked
+      : (groups[0]?.id ?? NEW_GROUP)
   const addingGroup = selected === NEW_GROUP
 
   function chooseGroup(id: string) {
