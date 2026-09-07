@@ -1,12 +1,12 @@
 # kcemanes-budget
 
-A small personal budget tracker: log expenses by category, set a monthly
-budget per category, and see where the month went. Each account only ever
-sees its own data. Light/dark theme and the display currency are picked in
-the header and remembered per browser.
+A small personal budget tracker: log expenses by category and income by
+source, set a monthly budget per category, and see where the month went.
+Each account only ever sees its own data. Light/dark theme and the display
+currency are picked in the header and remembered per browser.
 
 It is an installable, offline-first app: it launches, reads and records
-expenses with no connection, and syncs when one comes back. See
+entries with no connection, and syncs when one comes back. See
 [Offline](#offline).
 
 Live at **[budget.kcemanes.com](https://budget.kcemanes.com)**.
@@ -37,18 +37,18 @@ Postgres in the background — see [Offline](#offline).
 | [src/App.tsx](src/App.tsx) | Session gate: loading → [Login](src/components/Login.tsx) → [Dashboard](src/components/Dashboard.tsx) |
 | [src/hooks/useSession.ts](src/hooks/useSession.ts) | The signed-in account, resolved so that being offline never looks like being signed out |
 | [src/hooks/useSyncState.ts](src/hooks/useSyncState.ts) | Subscribes the header to the sync engine's status and queue depth |
-| [src/hooks/useBudgetData.ts](src/hooks/useBudgetData.ts) | The categories plus a date range of expenses, re-read whenever the store changes |
+| [src/hooks/useBudgetData.ts](src/hooks/useBudgetData.ts) | Categories and income sources, plus a date range of expenses and incomes, re-read whenever the store changes |
 | [src/hooks/useElementWidth.ts](src/hooks/useElementWidth.ts) | The rendered width of an element, so a chart can draw at one unit per pixel |
 | [src/hooks/usePwa.ts](src/hooks/usePwa.ts) | Subscribes to "an update is waiting" and "the browser is offering an install" |
 | [src/lib/supabase.ts](src/lib/supabase.ts) | The single Supabase client; fails loudly if env vars are missing |
-| [src/lib/api.ts](src/lib/api.ts) | All reads and writes for categories and expenses — local, never networked |
+| [src/lib/api.ts](src/lib/api.ts) | All reads and writes for both directions of money — local, never networked |
 | [src/lib/db.ts](src/lib/db.ts) | Opening IndexedDB, and reading or writing whole stores |
-| [src/lib/store.ts](src/lib/store.ts) | Categories, expenses, and the outbox |
+| [src/lib/store.ts](src/lib/store.ts) | Categories, expenses, income sources, incomes, and the outbox |
 | [src/lib/sync.ts](src/lib/sync.ts) | The only module that talks to Supabase |
 | [src/lib/auth.ts](src/lib/auth.ts) | Who is signed in, in a form that survives being offline |
 | [src/lib/pwa.ts](src/lib/pwa.ts) | Service worker registration, update and install prompts |
 | [src/lib/format.ts](src/lib/format.ts) | Date and month range helpers |
-| [src/lib/analytics.ts](src/lib/analytics.ts) | The per-month and per-category aggregations behind the charts |
+| [src/lib/analytics.ts](src/lib/analytics.ts) | The per-month, per-parent and actual-against-target aggregations behind the charts, plus both axis scales |
 | [src/lib/theme.ts](src/lib/theme.ts) | Theme choice, storage, and the `data-theme` stamp |
 | [src/lib/currency.ts](src/lib/currency.ts) | The currency list, money formatting, and storage |
 | [src/components/ThemeToggle.tsx](src/components/ThemeToggle.tsx) | The light/dark button, used by both Login and Dashboard |
@@ -61,25 +61,157 @@ Postgres in the background — see [Offline](#offline).
 A few details worth knowing:
 
 - The dashboard has two views. **Month** is scoped to one month at a time;
-  expenses are fetched for that month's inclusive date range and the stepper
-  can't move past the current month. **Charts** covers the last 3, 6 or 12
-  months ending with the current one, and deliberately ignores the stepper —
-  a trend that stops halfway through history because you were browsing March
-  is a trap rather than a feature.
-- The charts are hand-drawn SVG and CSS rather than a charting library: two
-  figures did not justify the dependency in a bundle that has to precache for
-  offline use. Both are one series in one hue, since spending per month and
-  per category is magnitude rather than identity, and both have a table view
-  underneath so no value is reachable only by hovering.
+  expenses and incomes are fetched for that month's inclusive date range and
+  the stepper can't move past the current month. **Charts** covers the last
+  3, 6 or 12 months ending with the current one, and deliberately ignores the
+  stepper — a trend that stops halfway through history because you were
+  browsing March is a trap rather than a feature.
+- The charts are hand-drawn SVG and CSS rather than a charting library: four
+  figures still did not justify the dependency in a bundle that has to
+  precache for offline use. Ranking stays one series in one hue, since what a
+  single category or source is worth is magnitude rather than identity, and
+  every figure has a table view underneath so no value is reachable only by
+  hovering. The by-month pair and the net chart are where colour does carry
+  identity — see [Charting two directions](#charting-two-directions).
 - A brand-new account has no categories, so a starter set (Groceries, Rent,
   Transport, Utilities, Dining out, Other) is seeded — but only once a sync
   has confirmed the server side is genuinely empty. Seeding on any empty
-  read would re-seed on every cold offline start.
-- `expenses` uses a **composite** foreign key on `(user_id, category_id)`.
-  Foreign keys are checked without RLS, so a plain FK on `category_id`
-  alone would let a crafted request attach another user's category.
-- Amounts come back from `numeric()` as strings once large enough, so
-  `listExpenses()` coerces them to numbers.
+  read would re-seed on every cold offline start. Income sources are
+  deliberately **not** seeded: there is no equivalent of "Groceries" that is
+  right for everyone, and skipping it means there is no second re-seed gate
+  to keep in step with the first.
+- `expenses` uses a **composite** foreign key on `(user_id, category_id)`,
+  and `incomes` the same on `(user_id, source_id)`. Foreign keys are checked
+  without RLS, so a plain FK on the child column alone would let a crafted
+  request attach another user's category or source.
+- Amounts come back from `numeric()` as strings once large enough, so every
+  money column is coerced in `pull()` on the way in — `amount` on both
+  halves, and the `monthly_budget` / `expected_monthly` targets.
+
+## Money in and money out
+
+Expenses hang off categories; incomes hang off **income sources**. The two
+halves are deliberately separate table pairs rather than one signed table,
+and `amount` stays `> 0` on both sides — the *table* carries the direction,
+so nothing downstream reasons about signs.
+
+Folding them together looks cheaper and is not. Letting a sign carry the
+direction would mean dropping `check (amount > 0)`, and that check turns out
+to be load bearing in more places than it looks: `axisMax()` guards on a
+non-negative peak, the summary bars set a CSS width straight from an amount,
+and the month's hero figure would quietly change meaning from "spent" to
+"net". Two positive tables cost one more pair of `selectAll` calls and break
+nothing. Where a signed number really is the point — the net per month — it
+is *derived* by `monthlyFlow()` rather than stored.
+
+### One form, one ledger
+
+[EntryForm](src/components/EntryForm.tsx) records both directions. They take
+the same five fields under different names, so a mode switch reuses the
+layout rather than stacking a second near-identical form underneath. Which
+list the picker draws from is the only real asymmetry.
+
+That selection is *derived* from the list rather than stored, which is what
+stops the select ever holding a value matching none of its own options — a
+picker displaying one thing while its state says another, and submitting the
+empty string on top of it. An invalid pick falls back to the first entry; an
+empty list falls back to the create field, which is the normal opening state
+for income, since a new account is given starter categories but no sources.
+
+[Ledger](src/components/Ledger.tsx) shows both in one table, because "where
+did the month go" is a question about both halves at once. Direction is
+carried by the **sign** in front of the amount rather than by its colour: a
+`+` is text, and survives being read aloud, printed in greyscale, or seen by
+someone who cannot separate the two hues. The colour only confirms it.
+
+One Tailwind trap, since the ledger walks straight into it: two competing
+`text-*` utilities in one class list resolve by stylesheet order, not by the
+order they are written in. `.text-income-strong` happens to be emitted
+*before* `.text-ink`, so a shared base class carrying `text-ink` would
+silently win over the per-row one. The amount cell therefore carries no
+colour in its base and picks the whole thing per row.
+
+### Targets
+
+A category's `monthly_budget` and a source's `expected_monthly` are the same
+shape and the **opposite test**: a budget is a ceiling you would rather stay
+under, an expectation is a floor you would rather clear.
+
+[TargetSummary](src/components/TargetSummary.tsx) draws both, and takes the
+comparison as a `miss` prop rather than inferring it from the data. Handed
+income rows with the expense test it would paint a source that *beat* its
+target in the overspend colour — so the prop exists to make that bug hard to
+write rather than merely unlikely. Missing a target is also stated in words,
+`over` or `short`, because which side of a target you landed on is the one
+thing on that row worth not leaving to a hue.
+
+Bars stay relative to the largest figure in their own list rather than to
+each row's target, which is the behaviour the spending summary always had: it
+compares rows to each other, and the target is the annotation. A row is kept
+when either its actual or its target is non-zero, so a target missed
+completely still appears instead of silently dropping out.
+
+**Neither target has an editor yet.** `monthly_budget` never had one — the
+form has always passed `null` — and `expected_monthly` matches it, so both
+are set by hand in SQL for now. Everything that *reads* them is finished; it
+is only the writing that is missing.
+
+### Charting two directions
+
+Ranking a set of categories is a question about magnitude, so
+[RankedBars](src/components/RankedBars.tsx) still draws one series in one
+hue. Putting income *next to* spending is a question about identity, and that
+is the one thing the old palette could not express — so income gets a hue of
+its own, and `--color-income` was repointed from the emerald alias it had
+been sitting on since before anything used it.
+
+Indigo, not the conventional green, because both halves of the conventional
+pairing were already spoken for: emerald is the accent and therefore reads as
+spending, and rose means overspending. Emerald-against-rose is also the one
+in/out pairing that collapses under red-green colour blindness, which a
+two-series chart cannot afford. Indigo against emerald survives it.
+
+Hue is never the only channel. In the grouped chart income sits left and
+spending right inside every month band, there is a legend above it, and each
+band exposes a focusable readout naming both figures; the table underneath
+carries In, Out and Net as text.
+
+[NetChart](src/components/NetChart.tsx) is the one figure where colour is a
+value judgment rather than an identity, so it deliberately does **not** reuse
+the series hues. A surplus is `income` — the money stayed with you — and a
+deficit is `overspend`, which is what that token already means everywhere
+else. Emerald is kept out of it entirely: directly above sits a chart where
+emerald means "spending", and reusing it for "good month" would make the pair
+contradict each other. Which side of zero a column is on, the sign in the
+tooltip, and the Net column of the table above all say the same thing without
+reference to hue.
+
+Its axis comes from `axisBounds()` rather than `axisMax()`. Both round the
+*step* instead of the ends, but a diverging axis needs one more thing from
+that: because both ends land on a multiple of the step, **zero is always
+exactly on a gridline**. A zero line floating between ticks would misreport
+which columns sit below it, which is the only thing the chart exists to show.
+The range can end up wider than four steps when it has to reach both ways —
+that is the honest outcome, the alternative being a clipped column.
+
+Finally, all of this is conditional on there being income to draw. An account
+that has never recorded any sees the view exactly as it was: one series, one
+hero figure, two figures, no legend. A net chart would restate the spending
+chart upside down and a by-source chart would be empty, so neither is
+rendered.
+
+### Adding it to a browser that already has data
+
+The two new IndexedDB stores arrive as `DB_VERSION` 2. `onupgradeneeded`
+already creates whatever is missing and leaves what exists alone, so there is
+no data migration to write.
+
+It is the first version bump the app has ever shipped, though, and that
+carries one cost: a second tab still holding version 1 open blocks the
+upgrade, `onblocked` resolves null, and *that* tab drops to the in-memory
+fallback for the rest of its life, because `opening` is memoized. Writes
+still work and still sync — they just do not outlive the tab. A reload clears
+it, which is what the update prompt is already nudging people towards.
 
 ## Offline
 
@@ -103,27 +235,29 @@ to be: writes still work and still sync, they just do not outlive the tab.
 
 ### How a write works
 
-Adding an expense writes it to IndexedDB and appends a change to the
-**outbox**, an ordered log of what this device has done that Postgres has
+Adding an expense or an income writes it to IndexedDB and appends a change to
+the **outbox**, an ordered log of what this device has done that Postgres has
 not confirmed. The call returns as soon as that lands.
 
 Row ids are generated by the client rather than by `gen_random_uuid()`.
-That is the detail that makes offline writes work: the expense has its final
-id the moment it is created, so nothing has to be re-pointed when it
+That is the detail that makes offline writes work: the row has its final id
+the moment it is created, so nothing has to be re-pointed when it
 eventually syncs, and the push can use `upsert` — a replay after a lost
 response rewrites the same row instead of inserting a duplicate.
 
-Deleting an expense that has not synced yet drops its queued create rather
-than queueing a delete behind it, so a row the server has never seen is not
-described to it twice.
+Deleting an entry that has not synced yet drops its queued create rather than
+queueing a delete behind it, so a row the server has never seen is not
+described to it twice. Both directions go through the same helper, so this
+holds for an income exactly as it does for an expense.
 
 ### How a sync works
 
 A pass is always **push, then pull**:
 
 1. The outbox replays in `seq` order. Order matters: an expense cannot be
-   inserted before the category it points at, because the composite foreign
-   key would refuse it.
+   inserted before the category it points at, nor an income before its
+   source, because the composite foreign key would refuse it. One global
+   queue per account is what guarantees that for both pairs at once.
 2. Every row for the account is fetched back and the local copy is replaced
    with it. Anything still in the outbox is layered on top, so an unsynced
    row does not flicker out mid-pass.
@@ -159,9 +293,10 @@ The two failure modes need opposite handling, and
   local row back. The dashboard then says what was undone.
 
 One refusal is repaired instead of reported: two devices adding the same
-category name while both offline. Names are unique per account, so the
-second to arrive loses — but the expenses queued behind it are perfectly
-good, so they are repointed at the category that won.
+category — or income source — name while both offline. Names are unique per
+account, so the second to arrive loses, but the rows queued behind it are
+perfectly good, so they are repointed at the parent that won. The repair is
+written once and parameterised over the two pairs rather than copied.
 
 ### What the header shows
 

@@ -1,22 +1,36 @@
 import { useEffect, useState } from 'react'
-import { listCategories, listExpenses } from '../lib/api'
+import {
+  listCategories,
+  listExpenses,
+  listIncomeSources,
+  listIncomes,
+} from '../lib/api'
 import { subscribe } from '../lib/store'
-import type { Category, Expense } from '../types'
+import type { Category, Expense, Income, IncomeSource } from '../types'
 
 /**
- * The categories, plus every expense in a day range, kept current.
+ * Both halves of the account — categories with expenses, income sources with
+ * incomes — for one day range, kept current.
  *
  * The store changes from underneath: a write from a component, or a sync
- * landing rows from another device. One subscription re-reads for both, so a
- * caller never threads a reload callback down through the tree.
+ * landing rows from another device. One subscription re-reads for all four, so
+ * a caller never threads a reload callback down through the tree.
  *
- * Reads are local and quick, so `loading` is really only true for the very
- * first read of a range. A later range change keeps the previous rows on
- * screen until the new ones arrive rather than blanking the view.
+ * Every view gets all four lists even when it only draws one of them. The
+ * reads are local and cheap for the same reason ./lib/db filters in
+ * JavaScript rather than through indexes — a personal budget is a few thousand
+ * rows even after a decade — and a second hook for the other direction would
+ * only be a second subscription saying the same thing.
+ *
+ * Reads are quick, so `loading` is really only true for the very first read of
+ * a range. A later range change keeps the previous rows on screen until the
+ * new ones arrive rather than blanking the view.
  */
 export function useBudgetData(userId: string, from: string, to: string) {
   const [categories, setCategories] = useState<Category[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
+  const [sources, setSources] = useState<IncomeSource[]>([])
+  const [incomes, setIncomes] = useState<Income[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadAt, setReloadAt] = useState(0)
@@ -29,13 +43,17 @@ export function useBudgetData(userId: string, from: string, to: string) {
 
     async function run() {
       try {
-        const [cats, rows] = await Promise.all([
+        const [cats, spent, srcs, received] = await Promise.all([
           listCategories(userId),
           listExpenses(userId, from, to),
+          listIncomeSources(userId),
+          listIncomes(userId, from, to),
         ])
         if (cancelled) return
         setCategories(cats)
-        setExpenses(rows)
+        setExpenses(spent)
+        setSources(srcs)
+        setIncomes(received)
         setError(null)
       } catch (err) {
         if (cancelled) return
@@ -53,7 +71,17 @@ export function useBudgetData(userId: string, from: string, to: string) {
     }
   }, [userId, from, to, reloadAt])
 
-  // setCategories is handed back so a component that has just created one can
-  // show it without waiting for the re-read the write will trigger anyway.
-  return { categories, expenses, loading, error, setCategories }
+  // The two setters are handed back so a component that has just created a
+  // category or a source can show it without waiting for the re-read the
+  // write will trigger anyway.
+  return {
+    categories,
+    expenses,
+    sources,
+    incomes,
+    loading,
+    error,
+    setCategories,
+    setSources,
+  }
 }

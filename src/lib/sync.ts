@@ -16,14 +16,23 @@
  */
 import { supabase } from './supabase'
 import {
+  GROUPS,
   dropOps,
   loadCategories,
   readOutbox,
-  remapCategory,
+  remapGroup,
   replaceFromRemote,
   seedStarterCategories,
 } from './store'
-import type { LocalCategory, LocalExpense, OutboxOp } from './store'
+import type {
+  GroupName,
+  LocalCategory,
+  LocalExpense,
+  LocalIncome,
+  LocalIncomeSource,
+  OutboxOp,
+  RemoteRows,
+} from './store'
 import * as db from './db'
 
 export type SyncStatus = 'idle' | 'syncing' | 'offline' | 'error'
@@ -100,14 +109,25 @@ function isRetryable(status: number) {
   return status === 0 || status === 401 || status === 403 || status === 408 || status === 429 || status >= 500
 }
 
+function subject(op: OutboxOp): string {
+  switch (op.kind) {
+    case 'category.create':
+      return `category “${String(op.row.name)}”`
+    case 'source.create':
+      return `income source “${String(op.row.name)}”`
+    case 'expense.create':
+      return `expense of ${String(op.row.amount)} on ${String(op.row.spent_on)}`
+    case 'income.create':
+      return `income of ${String(op.row.amount)} on ${String(op.row.received_on)}`
+    case 'expense.delete':
+      return 'a deleted expense'
+    case 'income.delete':
+      return 'a deleted income'
+  }
+}
+
 function describe(op: OutboxOp, message: string) {
-  const what =
-    op.kind === 'category.create'
-      ? `category “${String(op.row.name)}”`
-      : op.kind === 'expense.create'
-        ? `expense of ${String(op.row.amount)} on ${String(op.row.spent_on)}`
-        : 'a deleted expense'
-  return `${what} — ${message}`
+  return `${subject(op)} — ${message}`
 }
 
 // ---------------------------------------------------------------------------
@@ -127,30 +147,42 @@ function describe(op: OutboxOp, message: string) {
  * `with check` clause would reject anything else anyway.
  */
 function apply(op: OutboxOp) {
-  if (op.kind === 'category.create') {
-    return supabase.from('categories').upsert(op.row, { onConflict: 'id' })
+  switch (op.kind) {
+    case 'category.create':
+      return supabase.from('categories').upsert(op.row, { onConflict: 'id' })
+    case 'source.create':
+      return supabase
+        .from('income_sources')
+        .upsert(op.row, { onConflict: 'id' })
+    case 'expense.create':
+      return supabase.from('expenses').upsert(op.row, { onConflict: 'id' })
+    case 'income.create':
+      return supabase.from('incomes').upsert(op.row, { onConflict: 'id' })
+    case 'expense.delete':
+      return supabase.from('expenses').delete().eq('id', op.row.id as string)
+    case 'income.delete':
+      return supabase.from('incomes').delete().eq('id', op.row.id as string)
   }
-  if (op.kind === 'expense.create') {
-    return supabase.from('expenses').upsert(op.row, { onConflict: 'id' })
-  }
-  return supabase.from('expenses').delete().eq('id', op.row.id as string)
 }
 
 /**
- * Handles a category creation the server refused because the name is already
- * taken — the collision two offline devices can produce.
+ * Handles a category or income source creation the server refused because the
+ * name is already taken — the collision two offline devices can produce.
  *
- * Finds the category that won, repoints this device's rows at it, and patches
+ * Finds the row that won, repoints this device's children at it, and patches
  * the ops still to be sent in this same pass. Returns false if the rejection
  * was something else, in which case the caller reports it.
  */
-async function mergeDuplicateCategory(
+async function mergeDuplicateName(
   userId: string,
   op: OutboxOp,
   remaining: OutboxOp[],
 ): Promise<boolean> {
+  const group: GroupName = op.kind === 'source.create' ? 'source' : 'category'
+  const { parent, fk } = GROUPS[group]
+
   const { data, error } = await supabase
-    .from('categories')
+    .from(parent)
     .select('id')
     .eq('name', op.row.name as string)
     .maybeSingle()
@@ -158,12 +190,12 @@ async function mergeDuplicateCategory(
   const winner = (data as { id: string } | null)?.id
   if (error || !winner) return false
 
-  await remapCategory(userId, op.row.id as string, winner)
+  await remapGroup(userId, group, op.row.id as string, winner)
 
   // `remaining` was read before the repair, so the ops this pass has yet to
   // send still carry the dead id. Patch them in place to match the store.
   for (const later of remaining) {
-    if (later.row.category_id === op.row.id) later.row.category_id = winner
+    if (later.row[fk] === op.row.id) later.row[fk] = winner
   }
 
   return true
@@ -203,10 +235,10 @@ async function push(userId: string): Promise<PushResult> {
     }
 
     // Refused, and it will be refused again. Drop it and let the pull that
-    // follows roll the local row back — unless it is a category whose name is
-    // already taken, which is a merge rather than a loss.
-    if (op.kind === 'category.create') {
-      const merged = await mergeDuplicateCategory(userId, op, ops)
+    // follows roll the local row back — unless it is a category or an income
+    // source whose name is already taken, which is a merge rather than a loss.
+    if (op.kind === 'category.create' || op.kind === 'source.create') {
+      const merged = await mergeDuplicateName(userId, op, ops)
       if (merged) {
         settled.push(op.seq)
         continue
@@ -243,17 +275,20 @@ async function selectAll(table: string, columns: string): Promise<Record<string,
   }
 }
 
-async function pull(userId: string) {
-  const [categories, expenses] = await Promise.all([
+async function pull(userId: string): Promise<RemoteRows> {
+  const [categories, expenses, sources, incomes] = await Promise.all([
     selectAll('categories', 'id, name, monthly_budget'),
     selectAll('expenses', 'id, category_id, spent_on, amount, note, created_at'),
+    selectAll('income_sources', 'id, name, expected_monthly'),
+    selectAll('incomes', 'id, source_id, received_on, amount, note, created_at'),
   ])
 
+  // numeric() arrives as a string once the value is large enough, so every
+  // money column is coerced back on the way in.
   return {
     categories: categories.map((row) => ({
       ...row,
       user_id: userId,
-      // numeric() arrives as a string once the value is large enough.
       monthly_budget:
         row.monthly_budget === null ? null : Number(row.monthly_budget),
     })) as LocalCategory[],
@@ -262,6 +297,17 @@ async function pull(userId: string) {
       user_id: userId,
       amount: Number(row.amount),
     })) as LocalExpense[],
+    income_sources: sources.map((row) => ({
+      ...row,
+      user_id: userId,
+      expected_monthly:
+        row.expected_monthly === null ? null : Number(row.expected_monthly),
+    })) as LocalIncomeSource[],
+    incomes: incomes.map((row) => ({
+      ...row,
+      user_id: userId,
+      amount: Number(row.amount),
+    })) as LocalIncome[],
   }
 }
 

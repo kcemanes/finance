@@ -8,27 +8,92 @@
  * and never needs to know whether it is online.
  *
  * Row ids are generated here rather than by Postgres. That is what makes a
- * write work offline: the expense has a real, final id the moment it is
- * created, so nothing has to be re-pointed when it eventually syncs, and a
- * replay that runs twice writes the same row rather than a duplicate.
+ * write work offline: the row has a real, final id the moment it is created,
+ * so nothing has to be re-pointed when it eventually syncs, and a replay that
+ * runs twice writes the same row rather than a duplicate.
+ *
+ * There are two directions of money and a table pair for each — categories
+ * with expenses, income sources with incomes. Both amounts are positive and
+ * the table carries the direction, so nothing downstream reasons about signs.
+ * The generic parts below are generic over that pairing rather than written
+ * twice, because the interesting logic (what a pull may overwrite, how a
+ * duplicate name is repaired) is subtle enough that two copies would drift.
  */
 import * as db from './db'
-import type { Category, Expense } from '../types'
+import type { Category, Expense, Income, IncomeSource } from '../types'
 
 export type LocalCategory = Category & { user_id: string }
-export type LocalExpense = Expense & { user_id: string; created_at: string }
+export type LocalExpense = Expense & { user_id: string }
+export type LocalIncomeSource = IncomeSource & { user_id: string }
+export type LocalIncome = Income & { user_id: string }
 
 /** A change waiting to reach Supabase. Replayed in `seq` order. */
 export type OutboxOp = {
   seq: number
   user_id: string
-  kind: 'category.create' | 'expense.create' | 'expense.delete'
+  kind:
+    | 'category.create'
+    | 'expense.create'
+    | 'expense.delete'
+    | 'source.create'
+    | 'income.create'
+    | 'income.delete'
   row: Record<string, unknown>
+}
+
+/** Everything the generic helpers below need to know about a synced row. */
+type Owned = { id: string; user_id: string }
+
+/** What a pull hands back: every row the account owns, per store. */
+export type RemoteRows = {
+  categories: LocalCategory[]
+  expenses: LocalExpense[]
+  income_sources: LocalIncomeSource[]
+  incomes: LocalIncome[]
+}
+
+/**
+ * The four synced stores, and the outbox kinds that speak for each.
+ *
+ * Categories and income sources have no delete kind because nothing deletes
+ * one: the UI offers no button, and the composite foreign key is
+ * `on delete restrict`, so a parent with rows under it could not go anyway.
+ */
+const SYNCED: {
+  store: keyof RemoteRows
+  create: OutboxOp['kind']
+  remove: OutboxOp['kind'] | null
+}[] = [
+  { store: 'categories', create: 'category.create', remove: null },
+  { store: 'expenses', create: 'expense.create', remove: 'expense.delete' },
+  { store: 'income_sources', create: 'source.create', remove: null },
+  { store: 'incomes', create: 'income.create', remove: 'income.delete' },
+]
+
+export type GroupName = 'category' | 'source'
+
+/**
+ * The two parent/child pairs, for the duplicate-name repair.
+ *
+ * `parent` doubles as the Postgres table name, which is what lets ./sync look
+ * up the row that won a name collision without a second mapping.
+ */
+export const GROUPS: Record<
+  GroupName,
+  { parent: db.StoreName; child: db.StoreName; fk: string }
+> = {
+  category: { parent: 'categories', child: 'expenses', fk: 'category_id' },
+  source: { parent: 'income_sources', child: 'incomes', fk: 'source_id' },
 }
 
 /**
  * Categories every new account starts with, so the expense form is usable
  * before the user has set anything up.
+ *
+ * Income sources are deliberately *not* seeded. There is no equivalent of
+ * "Groceries" that is right for everyone, an empty picker offering only
+ * "+ New source…" explains itself, and skipping it means there is no second
+ * re-seed gate to keep in step with the one in ./sync.
  */
 const STARTER_CATEGORIES = [
   'Groceries',
@@ -82,7 +147,7 @@ export function notifyChanged() {
 // Reads
 // ---------------------------------------------------------------------------
 
-const byName = (a: LocalCategory, b: LocalCategory) =>
+const byName = <T extends { name: string }>(a: T, b: T) =>
   a.name.localeCompare(b.name)
 
 export async function loadCategories(userId: string): Promise<Category[]> {
@@ -90,6 +155,15 @@ export async function loadCategories(userId: string): Promise<Category[]> {
   return rows.filter((row) => row.user_id === userId).sort(byName)
 }
 
+export async function loadIncomeSources(
+  userId: string,
+): Promise<IncomeSource[]> {
+  const rows = await db.readAll<LocalIncomeSource>('income_sources')
+  return rows.filter((row) => row.user_id === userId).sort(byName)
+}
+
+// Newest day first, and within a day the order the entries were typed — which
+// is what makes the merged ledger read the way it was written.
 export async function loadExpenses(
   userId: string,
   from: string,
@@ -104,6 +178,26 @@ export async function loadExpenses(
     .sort(
       (a, b) =>
         b.spent_on.localeCompare(a.spent_on) ||
+        b.created_at.localeCompare(a.created_at),
+    )
+}
+
+export async function loadIncomes(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<Income[]> {
+  const rows = await db.readAll<LocalIncome>('incomes')
+  return rows
+    .filter(
+      (row) =>
+        row.user_id === userId &&
+        row.received_on >= from &&
+        row.received_on <= to,
+    )
+    .sort(
+      (a, b) =>
+        b.received_on.localeCompare(a.received_on) ||
         b.created_at.localeCompare(a.created_at),
     )
 }
@@ -136,6 +230,29 @@ export async function addCategory(
     user_id: userId,
     kind: 'category.create',
     row: { id: row.id, name: row.name, monthly_budget: row.monthly_budget },
+  })
+
+  notifyChanged()
+  return row
+}
+
+export async function addIncomeSource(
+  userId: string,
+  name: string,
+  expectedMonthly: number | null,
+): Promise<IncomeSource> {
+  const row: LocalIncomeSource = {
+    id: uuid(),
+    user_id: userId,
+    name: name.trim(),
+    expected_monthly: expectedMonthly,
+  }
+
+  await db.put('income_sources', row)
+  await db.append({
+    user_id: userId,
+    kind: 'source.create',
+    row: { id: row.id, name: row.name, expected_monthly: row.expected_monthly },
   })
 
   notifyChanged()
@@ -178,23 +295,83 @@ export async function addExpense(
   return row
 }
 
-export async function removeExpense(userId: string, id: string): Promise<void> {
-  await db.remove('expenses', [id])
+export async function addIncome(
+  userId: string,
+  input: {
+    source_id: string
+    received_on: string
+    amount: number
+    note: string | null
+  },
+): Promise<Income> {
+  const row: LocalIncome = {
+    id: uuid(),
+    user_id: userId,
+    created_at: new Date().toISOString(),
+    ...input,
+  }
+
+  await db.put('incomes', row)
+  await db.append({
+    user_id: userId,
+    kind: 'income.create',
+    row: {
+      id: row.id,
+      source_id: row.source_id,
+      received_on: row.received_on,
+      amount: row.amount,
+      note: row.note,
+      created_at: row.created_at,
+    },
+  })
+
+  notifyChanged()
+  return row
+}
+
+/**
+ * Drops a row locally and queues the delete — unless the create for it is
+ * still sitting in the outbox, in which case that create is dropped instead.
+ * A row the server has never seen should not be described to it twice.
+ */
+async function removeEntry(
+  userId: string,
+  store: db.StoreName,
+  kinds: { create: OutboxOp['kind']; remove: OutboxOp['kind'] },
+  id: string,
+): Promise<void> {
+  await db.remove(store, [id])
 
   const queued = await readOutbox(userId)
   const pendingCreate = queued.find(
-    (op) => op.kind === 'expense.create' && op.row.id === id,
+    (op) => op.kind === kinds.create && op.row.id === id,
   )
 
   if (pendingCreate) {
-    // Added and deleted without ever reaching the server: drop the create
-    // rather than queue a delete for a row Supabase has never seen.
     await db.remove('outbox', [pendingCreate.seq])
   } else {
-    await db.append({ user_id: userId, kind: 'expense.delete', row: { id } })
+    await db.append({ user_id: userId, kind: kinds.remove, row: { id } })
   }
 
   notifyChanged()
+}
+
+export function removeExpense(userId: string, id: string): Promise<void> {
+  return removeEntry(
+    userId,
+    'expenses',
+    { create: 'expense.create', remove: 'expense.delete' },
+    id,
+  )
+}
+
+export function removeIncome(userId: string, id: string): Promise<void> {
+  return removeEntry(
+    userId,
+    'incomes',
+    { create: 'income.create', remove: 'income.delete' },
+    id,
+  )
 }
 
 /**
@@ -233,53 +410,43 @@ export async function seedStarterCategories(userId: string): Promise<void> {
  * an unsynced write does not make the user's row flicker out. A change the
  * server *rejected* has already been dropped from the outbox by this point,
  * so this is also what quietly reverts it.
+ *
+ * Rows belonging to another account are left untouched throughout: this
+ * browser may hold a second user's data, and a pull for one must not wipe the
+ * other.
  */
 export async function replaceFromRemote(
   userId: string,
-  remote: { categories: LocalCategory[]; expenses: LocalExpense[] },
+  remote: RemoteRows,
 ): Promise<void> {
   const queued = await readOutbox(userId)
 
-  const [localCategories, localExpenses] = await Promise.all([
-    db.readAll<LocalCategory>('categories'),
-    db.readAll<LocalExpense>('expenses'),
-  ])
-  const localCategoryById = new Map(localCategories.map((row) => [row.id, row]))
-  const localExpenseById = new Map(localExpenses.map((row) => [row.id, row]))
+  for (const table of SYNCED) {
+    const local = await db.readAll<Owned>(table.store)
+    const localById = new Map(local.map((row) => [row.id, row]))
 
-  const keptCategories: LocalCategory[] = []
-  const keptExpenses: LocalExpense[] = []
-  const deletedLocally = new Set<string>()
+    const kept: Owned[] = []
+    const deletedLocally = new Set<string>()
 
-  for (const op of queued) {
-    const id = op.row.id as string
-    if (op.kind === 'category.create') {
-      const row = localCategoryById.get(id)
-      if (row) keptCategories.push(row)
-    } else if (op.kind === 'expense.create') {
-      const row = localExpenseById.get(id)
-      if (row) keptExpenses.push(row)
-    } else {
-      deletedLocally.add(id)
+    for (const op of queued) {
+      const id = op.row.id as string
+      if (op.kind === table.create) {
+        const row = localById.get(id)
+        if (row) kept.push(row)
+      } else if (table.remove && op.kind === table.remove) {
+        deletedLocally.add(id)
+      }
     }
+
+    const incoming: Owned[] = remote[table.store]
+    const incomingIds = new Set(incoming.map((row) => row.id))
+
+    await db.replaceAll(table.store, [
+      ...local.filter((row) => row.user_id !== userId),
+      ...incoming.filter((row) => !deletedLocally.has(row.id)),
+      ...kept.filter((row) => !incomingIds.has(row.id)),
+    ])
   }
-
-  const remoteCategoryIds = new Set(remote.categories.map((row) => row.id))
-  const remoteExpenseIds = new Set(remote.expenses.map((row) => row.id))
-
-  // Rows belonging to another account are left untouched: this browser may
-  // hold a second user's data, and a pull for one must not wipe the other.
-  await db.replaceAll('categories', [
-    ...localCategories.filter((row) => row.user_id !== userId),
-    ...remote.categories,
-    ...keptCategories.filter((row) => !remoteCategoryIds.has(row.id)),
-  ])
-
-  await db.replaceAll('expenses', [
-    ...localExpenses.filter((row) => row.user_id !== userId),
-    ...remote.expenses.filter((row) => !deletedLocally.has(row.id)),
-    ...keptExpenses.filter((row) => !remoteExpenseIds.has(row.id)),
-  ])
 
   notifyChanged()
 }
@@ -289,35 +456,38 @@ export async function dropOps(seqs: number[]): Promise<void> {
 }
 
 /**
- * Repoints everything that referenced a locally-created category at a
- * different one, and drops the local category row.
+ * Repoints everything that referenced a locally-created category or income
+ * source at a different one, and drops the local parent row.
  *
  * This is the repair for the one collision the schema can produce: two
- * devices, both offline, both adding a category with the same name. Names are
+ * devices, both offline, both adding a parent with the same name. Names are
  * unique per account, so the second one to reach the server is refused — but
- * the expenses queued behind it are perfectly good, and would otherwise be
- * refused too for pointing at a category that no longer exists. Sending them
- * to the surviving category is what the user meant either way.
+ * the rows queued behind it are perfectly good, and would otherwise be
+ * refused too for pointing at a parent that no longer exists. Sending them to
+ * the parent that survived is what the user meant either way.
  */
-export async function remapCategory(
+export async function remapGroup(
   userId: string,
+  group: GroupName,
   fromId: string,
   toId: string,
 ): Promise<void> {
+  const { parent, child, fk } = GROUPS[group]
+
   const queued = await readOutbox(userId)
   for (const op of queued) {
-    if (op.row.category_id === fromId) {
-      await db.put('outbox', { ...op, row: { ...op.row, category_id: toId } })
+    if (op.row[fk] === fromId) {
+      await db.put('outbox', { ...op, row: { ...op.row, [fk]: toId } })
     }
   }
 
-  const rows = await db.readAll<LocalExpense>('expenses')
+  const rows = await db.readAll<Record<string, unknown>>(child)
   const touched = rows
-    .filter((row) => row.user_id === userId && row.category_id === fromId)
-    .map((row) => ({ ...row, category_id: toId }))
-  if (touched.length) await db.putAll('expenses', touched)
+    .filter((row) => row.user_id === userId && row[fk] === fromId)
+    .map((row) => ({ ...row, [fk]: toId }))
+  if (touched.length) await db.putAll(child, touched)
 
-  await db.remove('categories', [fromId])
+  await db.remove(parent, [fromId])
   notifyChanged()
 }
 

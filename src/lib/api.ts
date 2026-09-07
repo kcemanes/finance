@@ -12,10 +12,14 @@
  */
 import * as store from './store'
 import { requestSync } from './sync'
-import type { Category, Expense } from '../types'
+import type { Category, Expense, Income, IncomeSource } from '../types'
 
 export function listCategories(userId: string): Promise<Category[]> {
   return store.loadCategories(userId)
+}
+
+export function listIncomeSources(userId: string): Promise<IncomeSource[]> {
+  return store.loadIncomeSources(userId)
 }
 
 export function listExpenses(
@@ -26,6 +30,14 @@ export function listExpenses(
   return store.loadExpenses(userId, from, to)
 }
 
+export function listIncomes(
+  userId: string,
+  from: string,
+  to: string,
+): Promise<Income[]> {
+  return store.loadIncomes(userId, from, to)
+}
+
 export async function createCategory(
   userId: string,
   name: string,
@@ -34,6 +46,16 @@ export async function createCategory(
   const category = await store.addCategory(userId, name, monthlyBudget)
   void requestSync(userId)
   return category
+}
+
+export async function createIncomeSource(
+  userId: string,
+  name: string,
+  expectedMonthly: number | null,
+): Promise<IncomeSource> {
+  const source = await store.addIncomeSource(userId, name, expectedMonthly)
+  void requestSync(userId)
+  return source
 }
 
 export async function createExpense(
@@ -49,7 +71,25 @@ export async function createExpense(
   void requestSync(userId)
 }
 
+export async function createIncome(
+  userId: string,
+  input: {
+    source_id: string
+    received_on: string
+    amount: number
+    note: string | null
+  },
+): Promise<void> {
+  await store.addIncome(userId, input)
+  void requestSync(userId)
+}
+
 export async function deleteExpense(userId: string, id: string): Promise<void> {
   await store.removeExpense(userId, id)
+  void requestSync(userId)
+}
+
+export async function deleteIncome(userId: string, id: string): Promise<void> {
+  await store.removeIncome(userId, id)
   void requestSync(userId)
 }

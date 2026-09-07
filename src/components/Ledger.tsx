@@ -1,0 +1,145 @@
+import { useState } from 'react'
+import { deleteExpense, deleteIncome } from '../lib/api'
+import { useCurrency } from '../lib/currency'
+import { formatDay } from '../lib/format'
+import type { Category, Expense, Income, IncomeSource } from '../types'
+
+type Props = {
+  userId: string
+  expenses: Expense[]
+  incomes: Income[]
+  categories: Category[]
+  sources: IncomeSource[]
+}
+
+const TH =
+  'border-b border-line px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted'
+const TD = 'border-b border-line px-2.5 py-2.5 text-ink'
+// No colour in the base for the amount cell: it picks its own, and two
+// competing text-* utilities in one class list resolve by stylesheet order
+// rather than by the order they are written in.
+const TD_AMOUNT =
+  'border-b border-line px-2.5 py-2.5 text-right font-medium tabular-nums'
+
+/** One row of the ledger, whichever direction it came from. */
+type Entry = {
+  id: string
+  income: boolean
+  on: string
+  group: string
+  note: string | null
+  amount: number
+  created_at: string
+}
+
+/**
+ * Money in and money out in one table, because "where did the month go" is a
+ * question about both halves at once.
+ *
+ * Direction is carried by the sign in front of the amount, not by its colour.
+ * A `+` is text and survives being read aloud, printed in greyscale, or seen
+ * by someone who cannot separate the two hues; the colour only confirms it.
+ */
+function Ledger({ userId, expenses, incomes, categories, sources }: Props) {
+  const { formatMoney } = useCurrency()
+  const [removing, setRemoving] = useState<string | null>(null)
+
+  const categoryNames = new Map(categories.map((c) => [c.id, c.name]))
+  const sourceNames = new Map(sources.map((s) => [s.id, s.name]))
+
+  const entries: Entry[] = [
+    ...expenses.map((expense) => ({
+      id: expense.id,
+      income: false,
+      on: expense.spent_on,
+      // A category deleted on another device can still have expenses here.
+      group: categoryNames.get(expense.category_id) ?? 'Uncategorised',
+      note: expense.note,
+      amount: expense.amount,
+      created_at: expense.created_at,
+    })),
+    ...incomes.map((entry) => ({
+      id: entry.id,
+      income: true,
+      on: entry.received_on,
+      group: sourceNames.get(entry.source_id) ?? 'Unattributed',
+      note: entry.note,
+      amount: entry.amount,
+      created_at: entry.created_at,
+    })),
+  ].sort(
+    (a, b) =>
+      b.on.localeCompare(a.on) || b.created_at.localeCompare(a.created_at),
+  )
+
+  async function handleDelete(entry: Entry) {
+    setRemoving(entry.id)
+    try {
+      if (entry.income) await deleteIncome(userId, entry.id)
+      else await deleteExpense(userId, entry.id)
+    } finally {
+      setRemoving(null)
+    }
+  }
+
+  if (entries.length === 0) {
+    return (
+      <p className="my-8 text-center text-muted">
+        Nothing recorded this month yet.
+      </p>
+    )
+  }
+
+  return (
+    <table className="w-full border-collapse text-sm">
+      <thead>
+        <tr>
+          <th scope="col" className={TH}>
+            Date
+          </th>
+          <th scope="col" className={TH}>
+            Category / source
+          </th>
+          <th scope="col" className={TH}>
+            Note
+          </th>
+          <th scope="col" className={`${TH} text-right`}>
+            Amount
+          </th>
+          <th scope="col" className={TH}>
+            <span className="sr-only">Actions</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {entries.map((entry) => (
+          <tr key={entry.id} className="hover:bg-accent-soft">
+            <td className={`${TD} whitespace-nowrap`}>{formatDay(entry.on)}</td>
+            <td className={TD}>{entry.group}</td>
+            <td className={`${TD} text-muted`}>{entry.note}</td>
+            <td
+              className={`${TD_AMOUNT} ${
+                entry.income ? 'text-income-strong' : 'text-ink'
+              }`}
+            >
+              {entry.income ? '+' : '−'}
+              {formatMoney(entry.amount)}
+            </td>
+            <td className={`${TD} text-right`}>
+              <button
+                type="button"
+                className="btn-link text-overspend-strong disabled:opacity-50"
+                disabled={removing === entry.id}
+                onClick={() => handleDelete(entry)}
+              >
+                {removing === entry.id ? 'Removing…' : 'Delete'}
+              </button>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+export default Ledger

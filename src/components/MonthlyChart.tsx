@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useCurrency } from '../lib/currency'
 import { formatMonth, formatMonthShort } from '../lib/format'
 import { axisMax } from '../lib/analytics'
-import type { MonthTotal } from '../lib/analytics'
+import type { MonthFlow } from '../lib/analytics'
 import { useElementWidth } from '../hooks/useElementWidth'
 
 type Props = {
-  months: MonthTotal[]
+  months: MonthFlow[]
+  /** Draw income beside spending. False collapses this to one series. */
+  withIncome: boolean
   /** Accessible name for the figure; the visible heading is the caller's. */
   label: string
 }
@@ -20,7 +22,18 @@ const AXIS_H = 26
 const HEIGHT = PAD_TOP + PLOT_H + AXIS_H
 
 const MAX_BAR = 24 // marks stay thin; the band's leftover is air
+const BAR_GAP = 2 // between the pair inside one month
 const TICKS = [0, 0.25, 0.5, 0.75, 1] // four divisions
+
+type SeriesKey = 'income' | 'expense'
+
+// Income first, so the pair reads left-to-right as in, then out. Position is
+// doing as much work as the hue here, which is the point: the two are also
+// told apart by where they sit in the band.
+const SERIES: { key: SeriesKey; legend: string; fill: string; swatch: string }[] = [
+  { key: 'income', legend: 'Money in', fill: 'fill-income', swatch: 'bg-income' },
+  { key: 'expense', legend: 'Money out', fill: 'fill-accent', swatch: 'bg-accent' },
+]
 
 /** Rounded at the data end, square where it meets the baseline. */
 function columnPath(x: number, y: number, w: number, h: number) {
@@ -33,31 +46,44 @@ function columnPath(x: number, y: number, w: number, h: number) {
   )
 }
 
-function MonthlyChart({ months, label }: Props) {
+function MonthlyChart({ months, withIncome, label }: Props) {
   const { formatMoney, formatMoneyCompact } = useCurrency()
   const [box, setBox] = useState<HTMLDivElement | null>(null)
   const [active, setActive] = useState<number | null>(null)
   const width = useElementWidth(box)
 
-  const peak = Math.max(...months.map((m) => m.total), 0)
+  const series = withIncome ? SERIES : SERIES.filter((s) => s.key === 'expense')
+
+  const peak = Math.max(
+    ...months.flatMap((m) => series.map((s) => m[s.key])),
+    0,
+  )
   const max = axisMax(peak, TICKS.length - 1)
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT)
   const band = months.length > 0 ? plotW / months.length : 0
-  const barW = Math.min(MAX_BAR, band * 0.6)
+
+  // The pair has to share the band the single column used to have to itself.
+  const barW = Math.max(
+    1,
+    Math.min(MAX_BAR, (band * 0.66 - BAR_GAP * (series.length - 1)) / series.length),
+  )
+  const groupW = barW * series.length + BAR_GAP * (series.length - 1)
 
   // Below these widths the text would collide with its neighbours, so the
   // tooltip and the table carry those values instead of clipping them.
   const labelStep = band >= 30 ? 1 : 2
   const showValues = band >= 40
 
-  const peakIndex = months.findIndex((m) => m.total === peak)
+  // Direct labels are for the single-series case only. With a pair in every
+  // band there is nowhere to put them that does not land on the other column.
   const lastIndex = months.length - 1
+  const peakIndex = months.findIndex((m) => m.expense === peak)
   const labelled = new Set<number>()
-  if (showValues && peak > 0) {
+  if (!withIncome && showValues && peak > 0) {
     labelled.add(peakIndex)
     // The most recent month is the other one worth calling out — unless it is
     // next to the peak, where the two labels would overlap.
-    if (months[lastIndex].total > 0 && Math.abs(lastIndex - peakIndex) > 1) {
+    if (months[lastIndex].expense > 0 && Math.abs(lastIndex - peakIndex) > 1) {
       labelled.add(lastIndex)
     }
   }
@@ -67,8 +93,27 @@ function MonthlyChart({ months, label }: Props) {
 
   const hovered = active === null ? null : months[active]
 
+  const readout = (month: MonthFlow) =>
+    withIncome
+      ? `${formatMonth(month.year, month.month)}: ${formatMoney(month.income)} in, ${formatMoney(month.expense)} out, ${formatMoney(month.net)} net`
+      : `${formatMonth(month.year, month.month)}: ${formatMoney(month.expense)}`
+
   return (
     <div ref={setBox} className="relative">
+      {withIncome && (
+        <ul className="mb-2 flex list-none flex-wrap gap-4 p-0 text-xs text-muted">
+          {series.map((s) => (
+            <li key={s.key} className="flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={`inline-block h-2.5 w-2.5 rounded-[2px] ${s.swatch}`}
+              />
+              {s.legend}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {width > 0 && (
         <svg
           width={width}
@@ -108,11 +153,7 @@ function MonthlyChart({ months, label }: Props) {
 
           {months.map((month, index) => {
             const x = PAD_LEFT + band * index
-            const barX = x + (band - barW) / 2
-            // A non-zero month always gets a visible sliver rather than
-            // disappearing into the baseline.
-            const h = month.total > 0 ? Math.max(2, PAD_TOP + PLOT_H - y(month.total)) : 0
-            const top = PAD_TOP + PLOT_H - h
+            const groupX = x + (band - groupW) / 2
 
             return (
               <g key={month.key}>
@@ -125,22 +166,34 @@ function MonthlyChart({ months, label }: Props) {
                     className="fill-accent-soft"
                   />
                 )}
-                {h > 0 && (
-                  <path
-                    d={columnPath(barX, top, barW, h)}
-                    className="fill-accent"
-                  />
-                )}
+
+                {series.map((s, slot) => {
+                  const value = month[s.key]
+                  // A non-zero month always gets a visible sliver rather than
+                  // disappearing into the baseline.
+                  const h = value > 0 ? Math.max(2, PAD_TOP + PLOT_H - y(value)) : 0
+                  if (h === 0) return null
+                  const barX = groupX + slot * (barW + BAR_GAP)
+                  return (
+                    <path
+                      key={s.key}
+                      d={columnPath(barX, PAD_TOP + PLOT_H - h, barW, h)}
+                      className={s.fill}
+                    />
+                  )
+                })}
+
                 {labelled.has(index) && (
                   <text
-                    x={barX + barW / 2}
-                    y={top - 7}
+                    x={groupX + groupW / 2}
+                    y={PAD_TOP + PLOT_H - Math.max(2, PAD_TOP + PLOT_H - y(month.expense)) - 7}
                     textAnchor="middle"
                     className="fill-ink text-[11px] font-medium tabular-nums"
                   >
-                    {formatMoneyCompact(month.total)}
+                    {formatMoneyCompact(month.expense)}
                   </text>
                 )}
+
                 {(index - lastIndex) % labelStep === 0 && (
                   <text
                     x={x + band / 2}
@@ -151,6 +204,7 @@ function MonthlyChart({ months, label }: Props) {
                     {formatMonthShort(month.year, month.month)}
                   </text>
                 )}
+
                 {/* The hit target is the whole band, not the painted column. */}
                 <rect
                   x={x}
@@ -160,7 +214,7 @@ function MonthlyChart({ months, label }: Props) {
                   fill="transparent"
                   tabIndex={0}
                   role="img"
-                  aria-label={`${formatMonth(month.year, month.month)}: ${formatMoney(month.total)}`}
+                  aria-label={readout(month)}
                   onPointerEnter={() => setActive(index)}
                   onPointerLeave={() => setActive(null)}
                   onFocus={() => setActive(index)}
@@ -186,21 +240,50 @@ function MonthlyChart({ months, label }: Props) {
           className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full rounded-control border border-line bg-surface px-2.5 py-1.5 text-xs whitespace-nowrap shadow-card"
           style={{
             left: Math.min(
-              Math.max(PAD_LEFT + band * (active! + 0.5), 60),
-              width - 60,
+              Math.max(PAD_LEFT + band * (active! + 0.5), 70),
+              width - 70,
             ),
-            // Sits above the cap, but never above the plot: a tall column
-            // would otherwise push it out over the heading.
-            top: Math.max(y(hovered.total) - 10, PAD_TOP + 32),
+            // Sits above the taller of the pair, but never above the plot: a
+            // tall column would otherwise push it out over the heading.
+            top: Math.max(
+              y(Math.max(hovered.expense, withIncome ? hovered.income : 0)) - 10,
+              PAD_TOP + 44,
+            ),
           }}
         >
-          <div className="font-semibold text-ink tabular-nums">
-            {formatMoney(hovered.total)}
+          <div className="font-semibold text-ink">
+            {formatMonth(hovered.year, hovered.month)}
           </div>
-          <div className="text-muted">
-            {formatMonth(hovered.year, hovered.month)} · {hovered.count}{' '}
-            {hovered.count === 1 ? 'expense' : 'expenses'}
-          </div>
+          {withIncome ? (
+            <dl className="mt-1 grid grid-cols-[auto_auto] gap-x-2.5 tabular-nums">
+              <dt className="text-muted">In</dt>
+              <dd className="text-right text-income-strong">
+                {formatMoney(hovered.income)}
+              </dd>
+              <dt className="text-muted">Out</dt>
+              <dd className="text-right text-ink">
+                {formatMoney(hovered.expense)}
+              </dd>
+              <dt className="border-t border-line pt-0.5 text-muted">Net</dt>
+              <dd
+                className={`border-t border-line pt-0.5 text-right font-semibold ${
+                  hovered.net < 0 ? 'text-overspend-strong' : 'text-income-strong'
+                }`}
+              >
+                {hovered.net < 0 ? '−' : '+'}
+                {formatMoney(Math.abs(hovered.net))}
+              </dd>
+            </dl>
+          ) : (
+            <div className="text-muted">
+              <span className="font-semibold text-ink tabular-nums">
+                {formatMoney(hovered.expense)}
+              </span>
+              {' · '}
+              {hovered.expenseCount}{' '}
+              {hovered.expenseCount === 1 ? 'expense' : 'expenses'}
+            </div>
+          )}
         </div>
       )}
     </div>

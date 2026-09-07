@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import CategorySummary from './CategorySummary'
 import Charts from './Charts'
-import ExpenseForm from './ExpenseForm'
-import ExpenseList from './ExpenseList'
+import EntryForm from './EntryForm'
 import InstallButton from './InstallButton'
+import Ledger from './Ledger'
 import SyncStatus from './SyncStatus'
+import TargetSummary from './TargetSummary'
 import ThemeToggle from './ThemeToggle'
+import { categoryTargets, sourceTargets } from '../lib/analytics'
 import { signOut } from '../lib/auth'
 import type { Account } from '../lib/auth'
 import { CURRENCIES, useCurrency } from '../lib/currency'
@@ -40,13 +41,34 @@ function Dashboard({ account }: { account: Account }) {
   // Push and pull for as long as this account is on screen.
   useEffect(() => startSync(account.id), [account.id])
 
-  const { categories, expenses, loading, error, setCategories } = useBudgetData(
-    account.id,
-    bounds.from,
-    bounds.to,
-  )
+  const {
+    categories,
+    expenses,
+    sources,
+    incomes,
+    loading,
+    error,
+    setCategories,
+    setSources,
+  } = useBudgetData(account.id, bounds.from, bounds.to)
 
+  // The hero figure stays what it always was — what this month cost — so the
+  // number in that position still means what it used to. Income and the net
+  // go underneath it rather than replacing it.
   const total = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const earned = incomes.reduce((sum, income) => sum + income.amount, 0)
+  const net = earned - total
+
+  // Actuals joined to their targets. The two lists are built the same way and
+  // measured by opposite tests — see TargetSummary.
+  const spendRows = useMemo(
+    () => categoryTargets(expenses, categories),
+    [expenses, categories],
+  )
+  const earnRows = useMemo(
+    () => sourceTargets(incomes, sources),
+    [incomes, sources],
+  )
 
   function shiftMonth(delta: number) {
     const shifted = new Date(year, month + delta, 1)
@@ -97,6 +119,16 @@ function Dashboard({ account }: { account: Account }) {
           </p>
           <p className="mt-1.5 text-xs text-muted">
             {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
+            {/* An account that records no income sees exactly what it saw
+                before any of this existed. */}
+            {earned > 0 && (
+              <>
+                {' · '}
+                {formatMoney(earned)} in
+                {' · '}
+                {formatMoney(Math.abs(net))} {net < 0 ? 'short' : 'left'}
+              </>
+            )}
           </p>
         </div>
         <button
@@ -120,9 +152,10 @@ function Dashboard({ account }: { account: Account }) {
         <p className="my-8 text-center text-muted">Loading…</p>
       ) : (
         <>
-          <ExpenseForm
+          <EntryForm
             userId={account.id}
             categories={categories}
+            sources={sources}
             onCategoryAdded={(category) =>
               setCategories((current) =>
                 [...current, category].sort((a, b) =>
@@ -130,12 +163,35 @@ function Dashboard({ account }: { account: Account }) {
                 ),
               )
             }
+            onSourceAdded={(source) =>
+              setSources((current) =>
+                [...current, source].sort((a, b) =>
+                  a.name.localeCompare(b.name),
+                ),
+              )
+            }
           />
-          <CategorySummary expenses={expenses} categories={categories} />
-          <ExpenseList
+          {/* Same shape, opposite tests: spending wants to stay under its
+              target, income wants to clear it. Headings appear only when both
+              lists are on screen and need telling apart. */}
+          <TargetSummary
+            rows={spendRows}
+            miss="over"
+            tone="expense"
+            heading={earnRows.length > 0 ? 'Spending' : undefined}
+          />
+          <TargetSummary
+            rows={earnRows}
+            miss="under"
+            tone="income"
+            heading="Income"
+          />
+          <Ledger
             userId={account.id}
             expenses={expenses}
+            incomes={incomes}
             categories={categories}
+            sources={sources}
           />
         </>
       )}

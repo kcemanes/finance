@@ -12,7 +12,7 @@ export const CURRENCIES = [
 
 export type CurrencyCode = (typeof CURRENCIES)[number]['code']
 
-const DEFAULT_CURRENCY: CurrencyCode = 'CAD'
+const DEFAULT_CURRENCY: CurrencyCode = 'PHP'
 const STORAGE_KEY = 'budget.currency'
 
 const formatters = new Map<CurrencyCode, Intl.NumberFormat>()
