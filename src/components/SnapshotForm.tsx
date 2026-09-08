@@ -19,7 +19,7 @@ const now = new Date()
 const STEP =
   'btn-quiet h-9 w-9 rounded-full p-0 text-xl leading-none disabled:opacity-35'
 
-const LABEL = 'text-xs font-semibold text-ink'
+const LABEL = 'field-label'
 
 /** What one account is worth this month, and where that figure came from. */
 type Row = {
@@ -234,10 +234,8 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
           ‹
         </button>
         <div className="min-w-48 text-center">
-          <h3 className="text-base font-medium text-ink">
-            {formatMonth(year, month)}
-          </h3>
-          <p className="text-xs text-muted">Balances at the end of the month</p>
+          <h3 className="stat-label text-ink">{formatMonth(year, month)}</h3>
+          <p className="stat-note mt-0">Balances at the end of the month</p>
         </div>
         <button
           type="button"
@@ -263,9 +261,7 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
 
             return (
               <fieldset key={id} className="mt-4 first:mt-0">
-                <legend className="text-xs font-semibold tracking-[0.06em] text-muted uppercase">
-                  {label}
-                </legend>
+                <legend className="eyebrow">{label}</legend>
                 <ul className="mt-1.5">
                   {group.map((row) => {
                     const text = textFor(row)
@@ -292,7 +288,7 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
                           )}
                           {/* Where the figure in the box came from, so a
                               carried number is never mistaken for a reading. */}
-                          <span className="block text-xs text-muted">
+                          <span className="sub">
                             {isChanged
                               ? 'will be saved'
                               : row.carriedFrom

@@ -22,7 +22,7 @@ const NEW_GROUP = '__new__'
 
 // Fields wrap to full width below the 640px breakpoint.
 const FIELD = 'flex flex-col gap-1 max-sm:min-w-0 max-sm:basis-full'
-const LABEL = 'text-xs font-semibold text-ink'
+const LABEL = 'field-label'
 
 const KINDS = [
   { id: 'expense', label: 'Expense' },

@@ -27,7 +27,7 @@ const STEP =
 // trend across several of them, and the balance sheet all of it adds up to.
 const TABS = [
   { id: 'month', label: 'Month' },
-  { id: 'charts', label: 'Charts' },
+  { id: 'charts', label: 'Trends' },
   { id: 'worth', label: 'Net Worth' },
 ] as const
 
@@ -105,7 +105,7 @@ function Dashboard({ account }: { account: Account }) {
 
   const monthView = (
     <>
-      <section className="my-6 flex items-center justify-center gap-6">
+      <section className="my-6 flex items-center justify-center gap-6 max-sm:gap-2">
         <button
           type="button"
           className={STEP}
@@ -114,14 +114,13 @@ function Dashboard({ account }: { account: Account }) {
         >
           ‹
         </button>
-        <div className="min-w-48 text-center">
-          <h2 className="text-base font-medium text-muted">
-            {formatMonth(year, month)}
-          </h2>
-          <p className="text-4xl font-semibold tracking-[-1px] text-ink tabular-nums">
-            {formatMoney(total)}
-          </p>
-          <p className="mt-1.5 text-xs text-muted">
+        {/* The steppers are fixed at 36px, so on a phone this block takes
+            whatever is left rather than holding a 192px floor that pushes the
+            forward stepper off a 320px screen. */}
+        <div className="min-w-48 text-center max-sm:min-w-0 max-sm:flex-1">
+          <h2 className="stat-label">{formatMonth(year, month)}</h2>
+          <p className="stat-figure">{formatMoney(total)}</p>
+          <p className="stat-note">
             {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
             {/* An account that records no income sees exactly what it saw
                 before any of this existed. */}
@@ -203,13 +202,15 @@ function Dashboard({ account }: { account: Account }) {
   )
 
   return (
-    <div className="mx-auto w-full max-w-[860px] flex-1 px-5 pt-6 pb-16">
-      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
-        <h1 className="text-2xl font-medium tracking-[-0.4px] text-ink">
+    <div className="mx-auto w-full max-w-[860px] flex-1 px-5 pt-6 pb-16 max-sm:px-4">
+      <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4 max-sm:gap-2">
+        <h1 className="text-2xl font-medium tracking-[-0.4px] text-ink max-sm:text-xl">
           Finance
         </h1>
-        <div className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="text-muted">{account.email}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-3 text-sm max-sm:gap-2">
+          {/* An address with no spaces in it is one long word, which in a
+              wrapping row is a word wider than the screen. */}
+          <span className="min-w-0 truncate text-muted">{account.email}</span>
           <SyncStatus />
           <label htmlFor="currency" className="sr-only">
             Currency
@@ -277,7 +278,7 @@ function Dashboard({ account }: { account: Account }) {
       <section
         id="view"
         aria-label={
-          tab === 'charts' ? 'Charts' : tab === 'worth' ? 'Net worth' : 'This month'
+          tab === 'charts' ? 'Trends' : tab === 'worth' ? 'Net worth' : 'This month'
         }
       >
         {/* An account whose first sync is still running has nothing on this

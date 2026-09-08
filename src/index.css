@@ -152,6 +152,123 @@
    className without any specificity juggling, because Tailwind emits the
    utilities layer after this one. */
 @layer components {
+  /* ---- Type scale -------------------------------------------------------
+
+     Every tab is built from the same handful of things: a figure with a label
+     over it, a section with a blurb under its heading, a table of numbers.
+     Each of those was spelled out at its use site before this, and the copies
+     had drifted — the opening figure was text-4xl on Month, text-5xl on
+     Trends and text-5xl/text-4xl on Net Worth, so switching tabs resized a
+     number that means the same thing on all three.
+
+     One name per role, so a size can only be changed in one place, and two
+     tabs cannot disagree about it. */
+
+  /* A column header, a group legend, the name of a block inside a section.
+     Never a sentence — it is upper-cased. */
+  .eyebrow {
+    @apply text-xs font-semibold tracking-[0.06em] text-muted uppercase;
+  }
+
+  /* The label directly over a figure. This one *is* a sentence — "Net worth
+     at August 2026" — so it stays in sentence case. */
+  .stat-label {
+    @apply text-sm font-medium text-muted;
+  }
+
+  /* The one number a tab opens with.
+
+     Proportional digits, not tabular: equal-width digits read loose at this
+     size. Every other figure in the app is tabular, because everything else
+     sits in a column that has to line up.
+
+     The phone step is not cosmetic. At the desktop size a six-figure amount
+     in a currency with a symbol and separators — ₱1,234,567.89 — is wider
+     than a 360px screen minus its padding. */
+  .stat-figure {
+    @apply text-4xl font-semibold tracking-[-1px] text-ink max-sm:text-3xl;
+  }
+
+  /* Two or three figures across instead of one. A step under .stat-figure,
+     which is what makes it read as a row rather than as three heroes; the
+     colour is the caller's, since these are usually in/out/net. */
+  .stat-figure-sm {
+    @apply text-3xl font-semibold tracking-[-0.5px] max-sm:text-2xl;
+  }
+
+  /* The line under a figure: what it covers, what it is measured against. */
+  .stat-note {
+    @apply mt-1.5 text-xs text-muted;
+  }
+
+  .section-title {
+    @apply text-sm font-semibold text-ink;
+  }
+
+  .section-note {
+    @apply mb-3 text-xs text-muted;
+  }
+
+  /* A field label in a form. Sits tight above its control, so it is smaller
+     than .stat-label and carries ink rather than muted — it names something
+     you are about to type into, not something you are reading. */
+  .field-label {
+    @apply text-xs font-semibold text-ink;
+  }
+
+  /* ---- Tables -----------------------------------------------------------
+
+     One skin for all of them. The cells are addressed by element rather than
+     by a class per cell, so a table is `.table` and a numeric column is
+     `.num`, and there is no way to give one table 10px rows and the next 12.
+
+     The phone tightening is part of the skin instead of something each table
+     opts into. Four columns of currency do not fit a 390px screen at the
+     desktop padding — the reconciliation on Net Worth ran 19px past the page
+     and broke "August 2026" over two lines — and every table here is either
+     already four columns or one away from it.
+
+     Two bands, because one step still leaves those columns ~30px short on a
+     320px phone. They are written as mutually exclusive ranges rather than
+     max-sm plus a narrower max-*: Tailwind emits `width < 360px` *before*
+     `width < 40rem`, so a nested pair would lose to the wider rule at exactly
+     the width that needs the tighter one.
+
+     Wide tables are still wrapped in overflow-x-auto at the use site: this
+     fits the figures people actually have, and the wrapper catches the one
+     that is genuinely enormous by scrolling the table rather than the page. */
+  .table {
+    @apply w-full border-collapse text-sm;
+    @apply min-[360px]:max-sm:text-xs max-[360px]:text-[0.6875rem];
+  }
+
+  .table th {
+    @apply border-b border-line px-2.5 py-2 text-left;
+    @apply text-xs font-semibold tracking-[0.06em] text-muted uppercase;
+    @apply min-[360px]:max-sm:px-1 max-[360px]:px-0.5 max-[360px]:text-[0.6875rem];
+  }
+
+  .table td {
+    @apply border-b border-line px-2.5 py-2 text-ink;
+    @apply min-[360px]:max-sm:px-1 max-[360px]:px-0.5;
+  }
+
+  /* A number column. Right-aligned and tabular so the digits stack, and never
+     broken after a leading + or −: a signed figure is one value, and at phone
+     width the browser will take that break opportunity if it is offered and
+     strand the sign on a line of its own. */
+  .table .num {
+    @apply text-right tabular-nums whitespace-nowrap;
+  }
+
+  /* The note a row can carry under its own label — "3 months since the
+     previous reading" on a table cell, "carried from Jun 2026" under an
+     account name in the snapshot form — one step down from the line it
+     belongs to. Not scoped to .table: SnapshotForm uses it outside one. */
+  .sub {
+    @apply block text-xs text-muted max-sm:text-[0.6875rem];
+  }
+
   .input {
     @apply max-w-full rounded-control border border-line bg-surface px-2.5 py-2 text-sm text-ink;
   }

@@ -40,9 +40,7 @@ function TargetSummary({ rows, miss, tone, heading }: Props) {
   return (
     <section className="my-7">
       {heading && (
-        <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.06em] text-muted">
-          {heading}
-        </h3>
+        <h3 className="eyebrow mb-3">{heading}</h3>
       )}
       <ul className="flex list-none flex-col gap-3.5 p-0">
         {rows.map(({ id, name, actual, target }) => {

@@ -12,15 +12,6 @@ type Props = {
   sources: IncomeSource[]
 }
 
-const TH =
-  'border-b border-line px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted'
-const TD = 'border-b border-line px-2.5 py-2.5 text-ink'
-// No colour in the base for the amount cell: it picks its own, and two
-// competing text-* utilities in one class list resolve by stylesheet order
-// rather than by the order they are written in.
-const TD_AMOUNT =
-  'border-b border-line px-2.5 py-2.5 text-right font-medium tabular-nums'
-
 /** One row of the ledger, whichever direction it came from. */
 type Entry = {
   id: string
@@ -91,54 +82,50 @@ function Ledger({ userId, expenses, incomes, categories, sources }: Props) {
   }
 
   return (
-    <table className="w-full border-collapse text-sm">
-      <thead>
-        <tr>
-          <th scope="col" className={TH}>
-            Date
-          </th>
-          <th scope="col" className={TH}>
-            Category / source
-          </th>
-          <th scope="col" className={TH}>
-            Note
-          </th>
-          <th scope="col" className={`${TH} text-right`}>
-            Amount
-          </th>
-          <th scope="col" className={TH}>
-            <span className="sr-only">Actions</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {entries.map((entry) => (
-          <tr key={entry.id} className="hover:bg-accent-soft">
-            <td className={`${TD} whitespace-nowrap`}>{formatDay(entry.on)}</td>
-            <td className={TD}>{entry.group}</td>
-            <td className={`${TD} text-muted`}>{entry.note}</td>
-            <td
-              className={`${TD_AMOUNT} ${
-                entry.income ? 'text-income-strong' : 'text-ink'
-              }`}
-            >
-              {entry.income ? '+' : '−'}
-              {formatMoney(entry.amount)}
-            </td>
-            <td className={`${TD} text-right`}>
-              <button
-                type="button"
-                className="btn-link text-overspend-strong disabled:opacity-50"
-                disabled={removing === entry.id}
-                onClick={() => handleDelete(entry)}
-              >
-                {removing === entry.id ? 'Removing…' : 'Delete'}
-              </button>
-            </td>
+    <div className="overflow-x-auto">
+      <table className="table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Category / source</th>
+            <th scope="col">Note</th>
+            <th scope="col" className="num">
+              Amount
+            </th>
+            <th scope="col">
+              <span className="sr-only">Actions</span>
+            </th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={entry.id} className="hover:bg-accent-soft">
+              <td className="whitespace-nowrap">{formatDay(entry.on)}</td>
+              <td>{entry.group}</td>
+              <td className="text-muted">{entry.note}</td>
+              <td
+                className={`num font-medium ${
+                  entry.income ? 'text-income-strong' : ''
+                }`}
+              >
+                {entry.income ? '+' : '−'}
+                {formatMoney(entry.amount)}
+              </td>
+              <td className="text-right">
+                <button
+                  type="button"
+                  className="btn-link text-overspend-strong disabled:opacity-50"
+                  disabled={removing === entry.id}
+                  onClick={() => handleDelete(entry)}
+                >
+                  {removing === entry.id ? 'Removing…' : 'Delete'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

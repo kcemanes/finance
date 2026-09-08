@@ -16,15 +16,6 @@ import { useNetWorth } from '../hooks/useNetWorth'
 
 const now = new Date()
 
-const TH =
-  'border-b border-line px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted'
-const TD = 'border-b border-line px-2.5 py-2 text-ink'
-// nowrap because a signed figure is one value: at phone width the browser
-// will otherwise take the break opportunity after the leading + or − and
-// strand the sign on a line of its own.
-const TD_NUM =
-  'border-b border-line px-2.5 py-2 text-right tabular-nums whitespace-nowrap'
-
 /**
  * The balance sheet: what everything is worth, how it got there, and the form
  * that keeps it up to date.
@@ -93,15 +84,11 @@ function Balances({ userId }: { userId: string }) {
 
       {latest ? (
         <section className="my-8 text-center">
-          <h2 className="text-base font-medium text-muted">
+          <h2 className="stat-label">
             Net worth at {formatMonth(latest.year, latest.month)}
           </h2>
-          {/* The hero figure: proportional digits, not tabular — equal-width
-              digits read loose at this size. */}
-          <p className="text-5xl font-semibold tracking-[-1px] text-ink">
-            {formatMoney(latest.net)}
-          </p>
-          <p className="mt-1.5 text-xs text-muted">
+          <p className="stat-figure">{formatMoney(latest.net)}</p>
+          <p className="stat-note">
             {change !== null && previous ? (
               <>
                 <span
@@ -128,7 +115,7 @@ function Balances({ userId }: { userId: string }) {
         </section>
       ) : (
         <section className="my-8 text-center">
-          <h2 className="text-base font-medium text-muted">Net Worth</h2>
+          <h2 className="stat-label">Net Worth</h2>
           <p className="mt-1.5 text-sm text-muted">
             Add your accounts and record what each was worth at the end of a
             month. Every month after that, only the ones that moved need
@@ -141,8 +128,8 @@ function Balances({ userId }: { userId: string }) {
 
       {points.length >= 2 && (
         <section className="my-10">
-          <h3 className="text-sm font-semibold text-ink">Over time</h3>
-          <p className="mb-3 text-xs text-muted">
+          <h3 className="section-title">Over time</h3>
+          <p className="section-note">
             Net worth at each month end that was recorded,{' '}
             {formatMonthAbbr(points[0].year, points[0].month)} –{' '}
             {formatMonthAbbr(latest!.year, latest!.month)}.
@@ -159,170 +146,166 @@ function Balances({ userId }: { userId: string }) {
 
       {steps.length > 0 && (
         <section className="my-10">
-          <h3 className="text-sm font-semibold text-ink">
-            What moved it
-          </h3>
-          <p className="mb-3 text-xs text-muted">
+          <h3 className="section-title">What moved it</h3>
+          <p className="section-note">
             Each step split into the part the ledger accounts for and the part
             it does not. <em>Saved</em> is income less expenses over the same
-            months, from the Month and Charts tabs. <em>Other</em> is the
+            months, from the Month and Trends tabs. <em>Other</em> is the
             remainder — market movement, interest and revaluations, and
             anything that was spent without being recorded.
           </p>
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr>
-                <th scope="col" className={TH}>
-                  Month
-                </th>
-                <th scope="col" className={`${TH} text-right`}>
-                  Change
-                </th>
-                <th scope="col" className={`${TH} text-right`}>
-                  Saved
-                </th>
-                <th scope="col" className={`${TH} text-right`}>
-                  Other
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {[...steps].reverse().map((step) => (
-                <tr key={step.key}>
-                  <td className={TD}>
-                    {formatMonth(step.year, step.month)}
-                    {step.span > 1 && (
-                      <span className="block text-xs text-muted">
-                        {step.span} months since the previous reading
-                      </span>
-                    )}
-                  </td>
-                  <td
-                    className={`${TD_NUM} ${
-                      step.change < 0
-                        ? 'text-overspend-strong'
-                        : 'text-income-strong'
-                    }`}
-                  >
-                    {step.change < 0 ? '−' : '+'}
-                    {formatMoney(Math.abs(step.change))}
-                  </td>
-                  {/* A span the ledger was not loaded for would make the split
-                      a fiction, so it is left blank rather than guessed. */}
-                  <td className={`${TD_NUM} text-ink`}>
-                    {step.complete
-                      ? `${step.flow < 0 ? '−' : '+'}${formatMoney(Math.abs(step.flow))}`
-                      : '—'}
-                  </td>
-                  <td className={`${TD_NUM} text-ink`}>
-                    {step.complete
-                      ? `${step.unexplained < 0 ? '−' : '+'}${formatMoney(
-                          Math.abs(step.unexplained),
-                        )}`
-                      : '—'}
-                  </td>
+          {/* The tightening below fits the usual figures; a genuinely huge
+              one scrolls the table rather than the page. */}
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th scope="col">Month</th>
+                  <th scope="col" className="num">
+                    Change
+                  </th>
+                  <th scope="col" className="num">
+                    Saved
+                  </th>
+                  <th scope="col" className="num">
+                    Other
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {[...steps].reverse().map((step) => (
+                  <tr key={step.key}>
+                    <td>
+                      {formatMonth(step.year, step.month)}
+                      {step.span > 1 && (
+                        <span className="sub">
+                          {step.span} months since the previous reading
+                        </span>
+                      )}
+                    </td>
+                    <td
+                      className={`num ${
+                        step.change < 0
+                          ? 'text-overspend-strong'
+                          : 'text-income-strong'
+                      }`}
+                    >
+                      {step.change < 0 ? '−' : '+'}
+                      {formatMoney(Math.abs(step.change))}
+                    </td>
+                    {/* A span the ledger was not loaded for would make the split
+                        a fiction, so it is left blank rather than guessed. */}
+                    <td className="num">
+                      {step.complete
+                        ? `${step.flow < 0 ? '−' : '+'}${formatMoney(Math.abs(step.flow))}`
+                        : '—'}
+                    </td>
+                    <td className="num">
+                      {step.complete
+                        ? `${step.unexplained < 0 ? '−' : '+'}${formatMoney(
+                            Math.abs(step.unexplained),
+                          )}`
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
       {latest && (
         <section className="my-10">
-          <h3 className="text-sm font-semibold text-ink">
+          <h3 className="section-title">
             Balance sheet at {formatMonth(latest.year, latest.month)}
           </h3>
-          <p className="mb-3 text-xs text-muted">
+          <p className="section-note">
             Every account that had a value at this month end. A figure marked{' '}
             <em>carried</em> is the last reading taken of that account rather
             than one taken for this month.
           </p>
-          <table className="w-full border-collapse text-sm">
-            <tbody>
-              {ACCOUNT_KINDS.map(({ id, label, debt }) => {
-                const group = latest.holdings.filter(
-                  (holding) => kinds.get(holding.account_id) === id,
-                )
-                if (group.length === 0) return null
+          <div className="overflow-x-auto">
+            <table className="table">
+              <tbody>
+                {ACCOUNT_KINDS.map(({ id, label, debt }) => {
+                  const group = latest.holdings.filter(
+                    (holding) => kinds.get(holding.account_id) === id,
+                  )
+                  if (group.length === 0) return null
 
-                const subtotal = group.reduce(
-                  (sum, holding) => sum + holding.amount,
-                  0,
-                )
+                  const subtotal = group.reduce(
+                    (sum, holding) => sum + holding.amount,
+                    0,
+                  )
 
-                return (
-                  <Fragment key={id}>
-                    <tr>
-                      <th
-                        scope="colgroup"
-                        colSpan={2}
-                        className={`${TH} pt-4`}
-                      >
-                        {label}
-                      </th>
-                    </tr>
-                    {group
-                      .slice()
-                      .sort((a, b) =>
-                        (names.get(a.account_id) ?? '').localeCompare(
-                          names.get(b.account_id) ?? '',
-                        ),
-                      )
-                      .map((holding) => (
-                        <tr key={holding.account_id}>
-                          <td className={TD}>
-                            {names.get(holding.account_id) ?? 'Unknown account'}
-                            {holding.carried && (
-                              <span className="text-muted"> · carried</span>
-                            )}
-                          </td>
-                          <td
-                            className={`${TD_NUM} ${
-                              holding.carried ? 'text-muted' : 'text-ink'
-                            }`}
-                          >
-                            {formatMoney(holding.amount)}
-                          </td>
-                        </tr>
-                      ))}
-                    <tr>
-                      <td className={`${TD} font-semibold`}>
-                        Subtotal — {label.toLowerCase()}
-                      </td>
-                      <td className={`${TD_NUM} font-semibold text-ink`}>
-                        {debt ? '−' : ''}
-                        {formatMoney(subtotal)}
-                      </td>
-                    </tr>
-                  </Fragment>
-                )
-              })}
+                  return (
+                    <Fragment key={id}>
+                      <tr>
+                        <th scope="colgroup" colSpan={2} className="pt-4">
+                          {label}
+                        </th>
+                      </tr>
+                      {group
+                        .slice()
+                        .sort((a, b) =>
+                          (names.get(a.account_id) ?? '').localeCompare(
+                            names.get(b.account_id) ?? '',
+                          ),
+                        )
+                        .map((holding) => (
+                          <tr key={holding.account_id}>
+                            <td>
+                              {names.get(holding.account_id) ?? 'Unknown account'}
+                              {holding.carried && (
+                                <span className="text-muted"> · carried</span>
+                              )}
+                            </td>
+                            <td
+                              className={`num ${
+                                holding.carried ? 'text-muted' : ''
+                              }`}
+                            >
+                              {formatMoney(holding.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      <tr>
+                        <td className="font-semibold">
+                          Subtotal — {label.toLowerCase()}
+                        </td>
+                        <td className="num font-semibold">
+                          {debt ? '−' : ''}
+                          {formatMoney(subtotal)}
+                        </td>
+                      </tr>
+                    </Fragment>
+                  )
+                })}
 
-              <tr>
-                <td className={`${TD} pt-4 font-semibold`}>Total assets</td>
-                <td className={`${TD_NUM} pt-4 font-semibold text-ink`}>
-                  {formatMoney(latest.assets)}
-                </td>
-              </tr>
-              {latest.debt > 0 && (
                 <tr>
-                  <td className={`${TD} font-semibold`}>Total debt</td>
-                  <td
-                    className={`${TD_NUM} font-semibold text-overspend-strong`}
-                  >
-                    −{formatMoney(latest.debt)}
+                  <td className="pt-4 font-semibold">Total assets</td>
+                  <td className="num pt-4 font-semibold">
+                    {formatMoney(latest.assets)}
                   </td>
                 </tr>
-              )}
-              <tr>
-                <td className={`${TD} font-semibold`}>Net worth</td>
-                <td className={`${TD_NUM} font-semibold text-ink`}>
-                  {formatMoney(latest.net)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                {latest.debt > 0 && (
+                  <tr>
+                    <td className="font-semibold">Total debt</td>
+                    <td className="num font-semibold text-overspend-strong">
+                      −{formatMoney(latest.debt)}
+                    </td>
+                  </tr>
+                )}
+                <tr>
+                  <td className="font-semibold">Net worth</td>
+                  <td className="num font-semibold">
+                    {formatMoney(latest.net)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

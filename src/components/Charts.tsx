@@ -31,14 +31,6 @@ function rangeName(months: number) {
   return years === 1 ? '1 year' : `${years} years`
 }
 
-const TH =
-  'border-b border-line px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted'
-const TD = 'border-b border-line px-2.5 py-2 text-ink'
-const TD_NUM = 'border-b border-line px-2.5 py-2 text-right tabular-nums'
-
-const STAT = 'text-xs font-semibold uppercase tracking-[0.06em] text-muted'
-const FIGURE = 'text-3xl font-semibold tracking-[-0.5px]'
-
 function Charts({ userId }: { userId: string }) {
   const { formatMoney } = useCurrency()
   const [range, setRange] = useState<(typeof RANGES)[number]>(6)
@@ -111,21 +103,21 @@ function Charts({ userId }: { userId: string }) {
         <>
           {hasIncome ? (
             <section className="my-8">
-              <div className="flex flex-wrap justify-center gap-x-12 gap-y-5 text-center">
+              <div className="flex flex-wrap justify-center gap-x-12 gap-y-5 text-center max-sm:gap-x-6">
                 <div>
-                  <h2 className={STAT}>In</h2>
-                  <p className={`${FIGURE} text-income-strong`}>
+                  <h2 className="stat-label">In</h2>
+                  <p className="stat-figure-sm text-income-strong">
                     {formatMoney(earned)}
                   </p>
                 </div>
                 <div>
-                  <h2 className={STAT}>Out</h2>
-                  <p className={`${FIGURE} text-ink`}>{formatMoney(spent)}</p>
+                  <h2 className="stat-label">Out</h2>
+                  <p className="stat-figure-sm text-ink">{formatMoney(spent)}</p>
                 </div>
                 <div>
-                  <h2 className={STAT}>Net</h2>
+                  <h2 className="stat-label">Net</h2>
                   <p
-                    className={`${FIGURE} ${
+                    className={`stat-figure-sm ${
                       net < 0 ? 'text-overspend-strong' : 'text-income-strong'
                     }`}
                   >
@@ -134,22 +126,16 @@ function Charts({ userId }: { userId: string }) {
                   </p>
                 </div>
               </div>
-              <p className="mt-3 text-center text-xs text-muted">
+              <p className="stat-note mt-3 text-center">
                 {rangeLabel} · {net < 0 ? 'losing' : 'keeping'}{' '}
                 {formatMoney(Math.abs(net) / range)} a month on average
               </p>
             </section>
           ) : (
             <section className="my-8 text-center">
-              <h2 className="text-base font-medium text-muted">
-                Spent in the last {spanName}
-              </h2>
-              {/* The hero figure: proportional digits, not tabular — equal-width
-                  digits read loose at this size. */}
-              <p className="text-5xl font-semibold tracking-[-1px] text-ink">
-                {formatMoney(spent)}
-              </p>
-              <p className="mt-1.5 text-xs text-muted">
+              <h2 className="stat-label">Spent in the last {spanName}</h2>
+              <p className="stat-figure">{formatMoney(spent)}</p>
+              <p className="stat-note">
                 {rangeLabel} · {formatMoney(spent / range)} a month on average
               </p>
             </section>
@@ -163,8 +149,8 @@ function Charts({ userId }: { userId: string }) {
           ) : (
             <>
               <section className="my-10">
-                <h3 className="text-sm font-semibold text-ink">By month</h3>
-                <p className="mb-3 text-xs text-muted">
+                <h3 className="section-title">By month</h3>
+                <p className="section-note">
                   {hasIncome
                     ? `Money in and money out each month, ${rangeLabel}.`
                     : `Total spent each month, ${rangeLabel}.`}
@@ -182,65 +168,67 @@ function Charts({ userId }: { userId: string }) {
                   <summary className="btn-link cursor-pointer text-muted">
                     Show as table
                   </summary>
-                  <table className="mt-2 w-full border-collapse text-sm">
-                    <thead>
-                      <tr>
-                        <th scope="col" className={TH}>
-                          Month
-                        </th>
-                        {hasIncome && (
-                          <th scope="col" className={`${TH} text-right`}>
-                            In
+                  <div className="overflow-x-auto">
+                    <table className="table mt-2">
+                      <thead>
+                        <tr>
+                          <th scope="col">
+                            Month
                           </th>
-                        )}
-                        <th scope="col" className={`${TH} text-right`}>
-                          {hasIncome ? 'Out' : 'Expenses'}
-                        </th>
-                        <th scope="col" className={`${TH} text-right`}>
-                          {hasIncome ? 'Net' : 'Total'}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {months.map((entry) => (
-                        <tr key={entry.key}>
-                          <td className={TD}>
-                            {formatMonth(entry.year, entry.month)}
-                          </td>
                           {hasIncome && (
-                            <td className={`${TD_NUM} text-income-strong`}>
-                              {formatMoney(entry.income)}
-                            </td>
+                            <th scope="col" className="num">
+                              In
+                            </th>
                           )}
-                          <td className={`${TD_NUM} text-ink`}>
-                            {hasIncome
-                              ? formatMoney(entry.expense)
-                              : entry.expenseCount}
-                          </td>
-                          <td
-                            className={`${TD_NUM} ${
-                              hasIncome && entry.net < 0
-                                ? 'text-overspend-strong'
-                                : 'text-ink'
-                            }`}
-                          >
-                            {hasIncome
-                              ? `${entry.net < 0 ? '−' : '+'}${formatMoney(Math.abs(entry.net))}`
-                              : formatMoney(entry.expense)}
-                          </td>
+                          <th scope="col" className="num">
+                            {hasIncome ? 'Out' : 'Expenses'}
+                          </th>
+                          <th scope="col" className="num">
+                            {hasIncome ? 'Net' : 'Total'}
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {months.map((entry) => (
+                          <tr key={entry.key}>
+                            <td>
+                              {formatMonth(entry.year, entry.month)}
+                            </td>
+                            {hasIncome && (
+                              <td className="num text-income-strong">
+                                {formatMoney(entry.income)}
+                              </td>
+                            )}
+                            <td className="num">
+                              {hasIncome
+                                ? formatMoney(entry.expense)
+                                : entry.expenseCount}
+                            </td>
+                            <td
+                              className={`num ${
+                                hasIncome && entry.net < 0
+                                  ? 'text-overspend-strong'
+                                  : ''
+                              }`}
+                            >
+                              {hasIncome
+                                ? `${entry.net < 0 ? '−' : '+'}${formatMoney(Math.abs(entry.net))}`
+                                : formatMoney(entry.expense)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </details>
               </section>
 
               {hasIncome && (
                 <section className="my-10">
-                  <h3 className="text-sm font-semibold text-ink">
+                  <h3 className="section-title">
                     Net by month
                   </h3>
-                  <p className="mb-3 text-xs text-muted">
+                  <p className="section-note">
                     What was left after spending, {rangeLabel}. Above the line
                     is a month you kept money; below it, one that cost more
                     than came in. Every figure is also the Net column of the
@@ -255,10 +243,10 @@ function Charts({ userId }: { userId: string }) {
 
               {spent > 0 && (
                 <section className="my-10">
-                  <h3 className="text-sm font-semibold text-ink">
+                  <h3 className="section-title">
                     By category
                   </h3>
-                  <p className="mb-3 text-xs text-muted">
+                  <p className="section-note">
                     Where the {formatMoney(spent)} went, {rangeLabel}.
                   </p>
                   <RankedBars
@@ -270,48 +258,50 @@ function Charts({ userId }: { userId: string }) {
                     <summary className="btn-link cursor-pointer text-muted">
                       Show as table
                     </summary>
-                    <table className="mt-2 w-full border-collapse text-sm">
-                      <thead>
-                        <tr>
-                          <th scope="col" className={TH}>
-                            Category
-                          </th>
-                          <th scope="col" className={`${TH} text-right`}>
-                            Expenses
-                          </th>
-                          <th scope="col" className={`${TH} text-right`}>
-                            Share
-                          </th>
-                          <th scope="col" className={`${TH} text-right`}>
-                            Total
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {byCategory.map((entry) => (
-                          <tr key={entry.id}>
-                            <td className={TD}>{entry.name}</td>
-                            <td className={`${TD_NUM} text-ink`}>
-                              {entry.count}
-                            </td>
-                            <td className={`${TD_NUM} text-ink`}>
-                              {formatShare(entry.share)}
-                            </td>
-                            <td className={`${TD_NUM} text-ink`}>
-                              {formatMoney(entry.total)}
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="table mt-2">
+                        <thead>
+                          <tr>
+                            <th scope="col">
+                              Category
+                            </th>
+                            <th scope="col" className="num">
+                              Expenses
+                            </th>
+                            <th scope="col" className="num">
+                              Share
+                            </th>
+                            <th scope="col" className="num">
+                              Total
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {byCategory.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{entry.name}</td>
+                              <td className="num">
+                                {entry.count}
+                              </td>
+                              <td className="num">
+                                {formatShare(entry.share)}
+                              </td>
+                              <td className="num">
+                                {formatMoney(entry.total)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </details>
                 </section>
               )}
 
               {hasIncome && (
                 <section className="my-10">
-                  <h3 className="text-sm font-semibold text-ink">By source</h3>
-                  <p className="mb-3 text-xs text-muted">
+                  <h3 className="section-title">By source</h3>
+                  <p className="section-note">
                     Where the {formatMoney(earned)} came from, {rangeLabel}.
                   </p>
                   <RankedBars
@@ -323,40 +313,42 @@ function Charts({ userId }: { userId: string }) {
                     <summary className="btn-link cursor-pointer text-muted">
                       Show as table
                     </summary>
-                    <table className="mt-2 w-full border-collapse text-sm">
-                      <thead>
-                        <tr>
-                          <th scope="col" className={TH}>
-                            Source
-                          </th>
-                          <th scope="col" className={`${TH} text-right`}>
-                            Payments
-                          </th>
-                          <th scope="col" className={`${TH} text-right`}>
-                            Share
-                          </th>
-                          <th scope="col" className={`${TH} text-right`}>
-                            Total
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bySource.map((entry) => (
-                          <tr key={entry.id}>
-                            <td className={TD}>{entry.name}</td>
-                            <td className={`${TD_NUM} text-ink`}>
-                              {entry.count}
-                            </td>
-                            <td className={`${TD_NUM} text-ink`}>
-                              {formatShare(entry.share)}
-                            </td>
-                            <td className={`${TD_NUM} text-ink`}>
-                              {formatMoney(entry.total)}
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="table mt-2">
+                        <thead>
+                          <tr>
+                            <th scope="col">
+                              Source
+                            </th>
+                            <th scope="col" className="num">
+                              Payments
+                            </th>
+                            <th scope="col" className="num">
+                              Share
+                            </th>
+                            <th scope="col" className="num">
+                              Total
+                            </th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {bySource.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{entry.name}</td>
+                              <td className="num">
+                                {entry.count}
+                              </td>
+                              <td className="num">
+                                {formatShare(entry.share)}
+                              </td>
+                              <td className="num">
+                                {formatMoney(entry.total)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </details>
                 </section>
               )}
