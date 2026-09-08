@@ -19,7 +19,17 @@ const now = new Date()
  * not follow the month stepper: a trend that stops halfway through history
  * because the reader was browsing March is a trap, not a feature.
  */
-const RANGES = [3, 6, 12] as const
+const RANGES = [3, 6, 12, 24, 36] as const
+
+/**
+ * "6 months", "2 years". Past a year the month count stops being the unit
+ * anyone thinks in — a button reading "36 months" looks like a typo.
+ */
+function rangeName(months: number) {
+  if (months < 12) return `${months} months`
+  const years = months / 12
+  return years === 1 ? '1 year' : `${years} years`
+}
 
 const TH =
   'border-b border-line px-2.5 py-2 text-left text-xs font-semibold uppercase tracking-[0.06em] text-muted'
@@ -69,11 +79,12 @@ function Charts({ userId }: { userId: string }) {
 
   const first = months[0]
   const rangeLabel = `${formatMonthAbbr(first.year, first.month)} – ${formatMonthAbbr(year, month)}`
+  const spanName = rangeName(range)
 
   return (
     <>
       {/* One filter row, above everything it scopes. */}
-      <div className="my-6 flex items-center gap-2 text-sm">
+      <div className="my-6 flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted">Last</span>
         {RANGES.map((option) => (
           <button
@@ -83,7 +94,7 @@ function Charts({ userId }: { userId: string }) {
             aria-pressed={option === range}
             onClick={() => setRange(option)}
           >
-            {option} months
+            {rangeName(option)}
           </button>
         ))}
       </div>
@@ -131,7 +142,7 @@ function Charts({ userId }: { userId: string }) {
           ) : (
             <section className="my-8 text-center">
               <h2 className="text-base font-medium text-muted">
-                Spent in the last {range} months
+                Spent in the last {spanName}
               </h2>
               {/* The hero figure: proportional digits, not tabular — equal-width
                   digits read loose at this size. */}

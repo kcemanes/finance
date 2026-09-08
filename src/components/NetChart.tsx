@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useCurrency } from '../lib/currency'
-import { formatMonth, formatMonthShort } from '../lib/format'
+import { formatMonth, formatMonthShort, formatMonthTick } from '../lib/format'
 import { axisBounds } from '../lib/analytics'
 import type { MonthFlow } from '../lib/analytics'
 import { useElementWidth } from '../hooks/useElementWidth'
@@ -21,6 +21,13 @@ const HEIGHT = PAD_TOP + PLOT_H + AXIS_H
 
 const MAX_BAR = 24
 const DIVISIONS = 4
+
+// Long windows squeeze the band, so the column keeps more of it. See
+// MonthlyChart for the same three constants and why they are what they are.
+const TIGHT_BAND = 18
+const LABEL_W = 30
+const LABEL_W_YEAR = 42
+const YEARS_FROM = 13
 
 /**
  * Rounded at the data end, square where it meets the zero line — so the
@@ -74,10 +81,17 @@ function NetChart({ months, label }: Props) {
 
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT)
   const band = months.length > 0 ? plotW / months.length : 0
-  const barW = Math.min(MAX_BAR, band * 0.6)
+  const barW = Math.min(MAX_BAR, band * (band < TIGHT_BAND ? 0.8 : 0.6))
 
-  const labelStep = band >= 30 ? 1 : 2
+  const withYear = months.length >= YEARS_FROM
+  const labelWidth = withYear ? LABEL_W_YEAR : LABEL_W
+  const labelStep = band > 0 ? Math.max(1, Math.ceil(labelWidth / band)) : 1
   const showValues = band >= 44
+
+  // Pulled in at the ends so the last tick is not cut in half by the edge —
+  // see MonthlyChart.
+  const labelX = (x: number) =>
+    Math.min(Math.max(x + band / 2, labelWidth / 2), width - labelWidth / 2)
 
   const y = (value: number) =>
     PAD_TOP + PLOT_H - (span > 0 ? ((value - low) / span) * PLOT_H : 0)
@@ -173,12 +187,14 @@ function NetChart({ months, label }: Props) {
 
                 {(index - (months.length - 1)) % labelStep === 0 && (
                   <text
-                    x={x + band / 2}
+                    x={labelX(x)}
                     y={PAD_TOP + PLOT_H + 17}
                     textAnchor="middle"
                     className="fill-muted text-[11px]"
                   >
-                    {formatMonthShort(month.year, month.month)}
+                    {withYear
+                      ? formatMonthTick(month.year, month.month)
+                      : formatMonthShort(month.year, month.month)}
                   </text>
                 )}
 

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useCurrency } from '../lib/currency'
-import { formatMonth, formatMonthShort } from '../lib/format'
+import { formatMonth, formatMonthShort, formatMonthTick } from '../lib/format'
 import { axisMax } from '../lib/analytics'
 import type { MonthFlow } from '../lib/analytics'
 import { useElementWidth } from '../hooks/useElementWidth'
@@ -24,6 +24,21 @@ const HEIGHT = PAD_TOP + PLOT_H + AXIS_H
 const MAX_BAR = 24 // marks stay thin; the band's leftover is air
 const BAR_GAP = 2 // between the pair inside one month
 const TICKS = [0, 0.25, 0.5, 0.75, 1] // four divisions
+
+// A band this narrow has stopped being a column with air around it, so the
+// pair claims more of it and closes the gap rather than thinning to hairlines.
+const TIGHT_BAND = 18
+
+// What one axis label needs to itself before it touches its neighbour. Ticks
+// are then thinned to whatever multiple of the band clears it, which is what
+// keeps a three-year window from writing all thirty-six names on top of
+// each other.
+const LABEL_W = 30
+const LABEL_W_YEAR = 42
+
+// Below this many months a bare "Jan" is still unambiguous — the window is
+// short enough that the range label above says which January it is.
+const YEARS_FROM = 13
 
 type SeriesKey = 'income' | 'expense'
 
@@ -63,16 +78,34 @@ function MonthlyChart({ months, withIncome, label }: Props) {
   const band = months.length > 0 ? plotW / months.length : 0
 
   // The pair has to share the band the single column used to have to itself.
+  const tight = band < TIGHT_BAND
+  const gap = tight ? 1 : BAR_GAP
   const barW = Math.max(
     1,
-    Math.min(MAX_BAR, (band * 0.66 - BAR_GAP * (series.length - 1)) / series.length),
+    Math.min(
+      MAX_BAR,
+      (band * (tight ? 0.86 : 0.66) - gap * (series.length - 1)) / series.length,
+    ),
   )
-  const groupW = barW * series.length + BAR_GAP * (series.length - 1)
+  const groupW = barW * series.length + gap * (series.length - 1)
 
+  // A window spanning years repeats every month name, so the ticks carry the
+  // year — and then need more room apiece.
+  const withYear = months.length >= YEARS_FROM
+  const labelWidth = withYear ? LABEL_W_YEAR : LABEL_W
   // Below these widths the text would collide with its neighbours, so the
   // tooltip and the table carry those values instead of clipping them.
-  const labelStep = band >= 30 ? 1 : 2
+  const labelStep = band > 0 ? Math.max(1, Math.ceil(labelWidth / band)) : 1
   const showValues = band >= 40
+
+  /**
+   * A tick sits over the middle of its band, except at the ends, where it is
+   * pulled in far enough to stay inside the drawing. The last band is right
+   * against the edge, and a label carrying a year is wide enough to be cut in
+   * half there — which is exactly the label that anchors the whole axis.
+   */
+  const labelX = (x: number) =>
+    Math.min(Math.max(x + band / 2, labelWidth / 2), width - labelWidth / 2)
 
   // Direct labels are for the single-series case only. With a pair in every
   // band there is nowhere to put them that does not land on the other column.
@@ -173,7 +206,7 @@ function MonthlyChart({ months, withIncome, label }: Props) {
                   // disappearing into the baseline.
                   const h = value > 0 ? Math.max(2, PAD_TOP + PLOT_H - y(value)) : 0
                   if (h === 0) return null
-                  const barX = groupX + slot * (barW + BAR_GAP)
+                  const barX = groupX + slot * (barW + gap)
                   return (
                     <path
                       key={s.key}
@@ -196,12 +229,14 @@ function MonthlyChart({ months, withIncome, label }: Props) {
 
                 {(index - lastIndex) % labelStep === 0 && (
                   <text
-                    x={x + band / 2}
+                    x={labelX(x)}
                     y={PAD_TOP + PLOT_H + 17}
                     textAnchor="middle"
                     className="fill-muted text-[11px]"
                   >
-                    {formatMonthShort(month.year, month.month)}
+                    {withYear
+                      ? formatMonthTick(month.year, month.month)
+                      : formatMonthShort(month.year, month.month)}
                   </text>
                 )}
 

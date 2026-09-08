@@ -25,6 +25,12 @@ const shortMonthYear = new Intl.DateTimeFormat(LOCALE, {
   year: 'numeric',
 })
 
+// Axis ticks on a window long enough that a bare month name repeats.
+const tickMonthYear = new Intl.DateTimeFormat(LOCALE, {
+  month: 'short',
+  year: '2-digit',
+})
+
 /**
  * Parse a YYYY-MM-DD date as a LOCAL date.
  *
@@ -51,6 +57,11 @@ export function formatMonthShort(year: number, month: number) {
 
 export function formatMonthAbbr(year: number, month: number) {
   return shortMonthYear.format(new Date(year, month, 1))
+}
+
+/** "Sep 25" — the month plus just enough year to anchor it on an axis. */
+export function formatMonthTick(year: number, month: number) {
+  return tickMonthYear.format(new Date(year, month, 1))
 }
 
 /** A 0-1 fraction as a whole percentage. */
