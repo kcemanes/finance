@@ -14,7 +14,7 @@ import { CURRENCIES, useCurrency } from '../lib/currency'
 import type { CurrencyCode } from '../lib/currency'
 import { formatMonth, monthBounds } from '../lib/format'
 import { dismissRejected, startSync } from '../lib/sync'
-import { useBudgetData } from '../hooks/useBudgetData'
+import { useFinanceData } from '../hooks/useFinanceData'
 import { useSyncState } from '../hooks/useSyncState'
 
 const now = new Date()
@@ -54,7 +54,7 @@ function Dashboard({ account }: { account: Account }) {
     error,
     setCategories,
     setSources,
-  } = useBudgetData(account.id, bounds.from, bounds.to)
+  } = useFinanceData(account.id, bounds.from, bounds.to)
 
   // The hero figure stays what it always was — what this month cost — so the
   // number in that position still means what it used to. Income and the net
@@ -206,7 +206,7 @@ function Dashboard({ account }: { account: Account }) {
     <div className="mx-auto w-full max-w-[860px] flex-1 px-5 pt-6 pb-16">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
         <h1 className="text-2xl font-medium tracking-[-0.4px] text-ink">
-          Budget
+          Finance
         </h1>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <span className="text-muted">{account.email}</span>

@@ -10,7 +10,7 @@ import {
 } from '../lib/analytics'
 import { useCurrency } from '../lib/currency'
 import { formatMonth, formatMonthAbbr, formatShare } from '../lib/format'
-import { useBudgetData } from '../hooks/useBudgetData'
+import { useFinanceData } from '../hooks/useFinanceData'
 
 const now = new Date()
 
@@ -52,7 +52,7 @@ function Charts({ userId }: { userId: string }) {
   )
 
   const { categories, expenses, sources, incomes, loading, error } =
-    useBudgetData(userId, bounds.from, bounds.to)
+    useFinanceData(userId, bounds.from, bounds.to)
 
   const months = useMemo(
     () => monthlyFlow(expenses, incomes, year, month, range),

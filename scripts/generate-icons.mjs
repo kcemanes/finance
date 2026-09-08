@@ -3,7 +3,7 @@
  * install needs. Run with `npm run icons`; the output is committed, so this
  * only needs re-running when the mark changes.
  *
- * The mark is four shapes — three rounded rectangles and a dot — so it is
+ * The mark is four shapes — a plate and three rounded bars — so it is
  * redrawn here directly rather than pulling in a rasteriser. Keeping it
  * dependency-free means no native build step in CI just to make icons.
  * The geometry below mirrors favicon.svg's 32-unit viewBox; change both
@@ -69,7 +69,7 @@ function encodePng(size, rgba) {
 
 const GREEN = [0x1f, 0x4d, 0x3a]
 const CARD = [0xdc, 0xeb, 0xe3]
-const DOT = [0x6f, 0xaf, 0x8f]
+const BAR = [0x6f, 0xaf, 0x8f]
 
 const sq = (n) => n * n
 
@@ -84,8 +84,6 @@ function roundRect(x, y, w, h, [tl, tr, br, bl]) {
     return true
   }
 }
-
-const circle = (cx, cy, r) => (px, py) => sq(px - cx) + sq(py - cy) <= sq(r)
 
 /** Shrinks a hit test towards the centre of the 32-unit box. */
 function scaled(hit, factor) {
@@ -102,11 +100,14 @@ function shapes({ bleed, inset }) {
     ? roundRect(-1, -1, 34, 34, [0, 0, 0, 0])
     : roundRect(0, 0, 32, 32, [7, 7, 7, 7])
 
+  const bar = (x, top) => roundRect(x, top, 5.5, 24.25 - top, [1.75, 1.75, 1.75, 1.75])
+
   const mark = [
-    // The card, its dark tab, and the coin on the tab.
-    [roundRect(5.5, 8.5, 21, 15, [3.5, 3.5, 3.5, 3.5]), CARD],
-    [roundRect(17.5, 13, 9, 6, [3, 0, 0, 3]), GREEN],
-    [circle(21.5, 16, 1.75), DOT],
+    // Three bars climbing to a common baseline, the tallest picked out in
+    // the light tone so the rise reads at favicon size.
+    [bar(5.5, 17.75), BAR],
+    [bar(13.25, 13), BAR],
+    [bar(21, 7.75), CARD],
   ]
 
   return [

@@ -18,7 +18,7 @@ import type { Category, Expense, Income, IncomeSource } from '../types'
  *
  * Every view gets all four lists even when it only draws one of them. The
  * reads are local and cheap for the same reason ./lib/db filters in
- * JavaScript rather than through indexes — a personal budget is a few thousand
+ * JavaScript rather than through indexes — a personal ledger is a few thousand
  * rows even after a decade — and a second hook for the other direction would
  * only be a second subscription saying the same thing.
  *
@@ -26,7 +26,7 @@ import type { Category, Expense, Income, IncomeSource } from '../types'
  * a range. A later range change keeps the previous rows on screen until the
  * new ones arrive rather than blanking the view.
  */
-export function useBudgetData(userId: string, from: string, to: string) {
+export function useFinanceData(userId: string, from: string, to: string) {
   const [categories, setCategories] = useState<Category[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [sources, setSources] = useState<IncomeSource[]>([])
@@ -58,7 +58,7 @@ export function useBudgetData(userId: string, from: string, to: string) {
       } catch (err) {
         if (cancelled) return
         setError(
-          err instanceof Error ? err.message : 'Could not load your budget.',
+          err instanceof Error ? err.message : 'Could not load your finances.',
         )
       } finally {
         if (!cancelled) setLoading(false)

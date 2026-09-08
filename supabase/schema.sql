@@ -1,4 +1,4 @@
--- Budget tracker schema.
+-- Finance tracker schema.
 -- Run this in Supabase: SQL Editor > New query > paste > Run.
 -- Written to be safe to re-run.
 --

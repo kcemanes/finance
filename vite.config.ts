@@ -17,8 +17,8 @@ export default defineConfig({
 
       manifest: {
         id: '/',
-        name: 'Budget',
-        short_name: 'Budget',
+        name: 'Finance',
+        short_name: 'Finance',
         description:
           'Log expenses by category, set a monthly budget, and see where the month went — online or off.',
         start_url: '/',

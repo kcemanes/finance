@@ -58,8 +58,8 @@ function Login() {
         </h1>
         <p className="mb-4 text-center text-sm text-muted">
           {mode === 'signin'
-            ? 'Welcome back to your budget.'
-            : 'Start tracking your budget.'}
+            ? 'Welcome back to your finances.'
+            : 'Start tracking your finances.'}
         </p>
 
         <label htmlFor="email" className={LABEL}>

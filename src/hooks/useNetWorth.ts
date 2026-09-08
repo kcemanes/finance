@@ -7,7 +7,7 @@ import type { Account, Balance } from '../types'
  * The balance sheet half of the account: every account, and every reading ever
  * taken of one.
  *
- * The mirror of useBudgetData, minus its day range. Net worth is a running
+ * The mirror of useFinanceData, minus its day range. Net worth is a running
  * series rather than a set of independent months — each point depends on every
  * reading before it, because an account that was not re-read keeps its last
  * value — so a window would have to be widened to the whole history to be

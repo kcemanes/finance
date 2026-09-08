@@ -1,6 +1,6 @@
-# kcemanes-budget
+# kcemanes-finance
 
-A small personal budget tracker: log expenses by category and income by
+A small personal finance tracker: log expenses by category and income by
 source, set a monthly budget per category, and see where the month went.
 Record what each of your accounts is worth at a month end and it tracks net
 worth too — then tells you how much of each month's change the ledger
@@ -12,7 +12,7 @@ It is an installable, offline-first app: it launches, reads and records
 entries with no connection, and syncs when one comes back. See
 [Offline](#offline).
 
-Live at **[budget.kcemanes.com](https://budget.kcemanes.com)**.
+Live at **[finance.kcemanes.com](https://finance.kcemanes.com)**.
 
 ## Stack
 
@@ -40,7 +40,7 @@ Postgres in the background — see [Offline](#offline).
 | [src/App.tsx](src/App.tsx) | Session gate: loading → [Login](src/components/Login.tsx) → [Dashboard](src/components/Dashboard.tsx) |
 | [src/hooks/useSession.ts](src/hooks/useSession.ts) | The signed-in account, resolved so that being offline never looks like being signed out |
 | [src/hooks/useSyncState.ts](src/hooks/useSyncState.ts) | Subscribes the header to the sync engine's status and queue depth |
-| [src/hooks/useBudgetData.ts](src/hooks/useBudgetData.ts) | Categories and income sources, plus a date range of expenses and incomes, re-read whenever the store changes |
+| [src/hooks/useFinanceData.ts](src/hooks/useFinanceData.ts) | Categories and income sources, plus a date range of expenses and incomes, re-read whenever the store changes |
 | [src/hooks/useNetWorth.ts](src/hooks/useNetWorth.ts) | Accounts and every balance ever recorded — no date range, because net worth is a running series |
 | [src/hooks/useElementWidth.ts](src/hooks/useElementWidth.ts) | The rendered width of an element, so a chart can draw at one unit per pixel |
 | [src/hooks/usePwa.ts](src/hooks/usePwa.ts) | Subscribes to "an update is waiting" and "the browser is offering an install" |
@@ -95,6 +95,12 @@ A few details worth knowing:
 - Amounts come back from `numeric()` as strings once large enough, so every
   money column is coerced in `pull()` on the way in — `amount` on both
   halves, and the `monthly_budget` / `expected_monthly` targets.
+- The app was called **Budget** before it was called Finance, and everything
+  the browser persists still carries the old prefix: the IndexedDB database
+  `budget`, and the `budget.account` / `budget.theme` / `budget.currency`
+  keys. That is deliberate — renaming them would sign every existing install
+  out and drop its offline copy. `monthly_budget` is not part of that: a
+  monthly budget is still a feature, not the old name.
 
 ## Money in and money out
 

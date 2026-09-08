@@ -11,7 +11,7 @@ import {
 } from '../lib/analytics'
 import { useCurrency } from '../lib/currency'
 import { formatMonth, formatMonthAbbr } from '../lib/format'
-import { useBudgetData } from '../hooks/useBudgetData'
+import { useFinanceData } from '../hooks/useFinanceData'
 import { useNetWorth } from '../hooks/useNetWorth'
 
 const now = new Date()
@@ -60,7 +60,7 @@ function Balances({ userId }: { userId: string }) {
     () => windowBounds(now.getFullYear(), now.getMonth(), span),
     [span],
   )
-  const { expenses, incomes } = useBudgetData(userId, bounds.from, bounds.to)
+  const { expenses, incomes } = useFinanceData(userId, bounds.from, bounds.to)
 
   const months = useMemo(
     () => monthlyFlow(expenses, incomes, now.getFullYear(), now.getMonth(), span),
@@ -145,9 +145,7 @@ function Balances({ userId }: { userId: string }) {
           <p className="mb-3 text-xs text-muted">
             Net worth at each month end that was recorded,{' '}
             {formatMonthAbbr(points[0].year, points[0].month)} –{' '}
-            {formatMonthAbbr(latest!.year, latest!.month)}. A month you did not
-            record is not a month you were worth nothing, so it is not a point:
-            the line runs between the readings either side of it.
+            {formatMonthAbbr(latest!.year, latest!.month)}.
           </p>
           <NetWorthChart
             points={points}

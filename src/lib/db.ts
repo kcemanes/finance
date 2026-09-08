@@ -8,7 +8,7 @@
  * income, an account or a balance *is* lives in ./store.
  *
  * Filtering — by user, by month — happens in JavaScript over a full store
- * read rather than through IndexedDB indexes. A personal budget is a few
+ * read rather than through IndexedDB indexes. A personal ledger is a few
  * thousand rows even after a decade, so an index would buy nothing and cost
  * a schema migration every time a query changed.
  *
