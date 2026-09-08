@@ -18,14 +18,30 @@
  * The generic parts below are generic over that pairing rather than written
  * twice, because the interesting logic (what a pull may overwrite, how a
  * duplicate name is repaired) is subtle enough that two copies would drift.
+ *
+ * Accounts and balances are a third pair, and the one that breaks the mould:
+ * every other row here is written once and then only ever deleted, while both
+ * of these are *set*. An account is renamed or archived; a balance for a month
+ * already recorded is corrected. So their outbox ops are upserts rather than
+ * creates, which changes one thing further down — see `overwrites`.
  */
 import * as db from './db'
-import type { Category, Expense, Income, IncomeSource } from '../types'
+import type {
+  Account,
+  AccountKind,
+  Balance,
+  Category,
+  Expense,
+  Income,
+  IncomeSource,
+} from '../types'
 
 export type LocalCategory = Category & { user_id: string }
 export type LocalExpense = Expense & { user_id: string }
 export type LocalIncomeSource = IncomeSource & { user_id: string }
 export type LocalIncome = Income & { user_id: string }
+export type LocalAccount = Account & { user_id: string }
+export type LocalBalance = Balance & { user_id: string }
 
 /** A change waiting to reach Supabase. Replayed in `seq` order. */
 export type OutboxOp = {
@@ -38,6 +54,9 @@ export type OutboxOp = {
     | 'source.create'
     | 'income.create'
     | 'income.delete'
+    | 'account.set'
+    | 'balance.set'
+    | 'balance.delete'
   row: Record<string, unknown>
 }
 
@@ -50,24 +69,35 @@ export type RemoteRows = {
   expenses: LocalExpense[]
   income_sources: LocalIncomeSource[]
   incomes: LocalIncome[]
+  accounts: LocalAccount[]
+  balances: LocalBalance[]
 }
 
 /**
- * The four synced stores, and the outbox kinds that speak for each.
+ * The six synced stores, and the outbox kinds that speak for each.
  *
- * Categories and income sources have no delete kind because nothing deletes
- * one: the UI offers no button, and the composite foreign key is
+ * Categories, income sources and accounts have no delete kind because nothing
+ * deletes one: the UI offers no button, and every composite foreign key is
  * `on delete restrict`, so a parent with rows under it could not go anyway.
+ * An account that is finished with is archived instead — see `is_active`.
+ *
+ * `overwrites` marks the two stores whose op is an upsert of a row that may
+ * already exist on the server rather than a first sighting of a new one. It
+ * decides who wins in `replaceFromRemote` when a pulled row and a still-queued
+ * local row share an id; the note there explains why the answer differs.
  */
 const SYNCED: {
   store: keyof RemoteRows
   create: OutboxOp['kind']
   remove: OutboxOp['kind'] | null
+  overwrites: boolean
 }[] = [
-  { store: 'categories', create: 'category.create', remove: null },
-  { store: 'expenses', create: 'expense.create', remove: 'expense.delete' },
-  { store: 'income_sources', create: 'source.create', remove: null },
-  { store: 'incomes', create: 'income.create', remove: 'income.delete' },
+  { store: 'categories', create: 'category.create', remove: null, overwrites: false },
+  { store: 'expenses', create: 'expense.create', remove: 'expense.delete', overwrites: false },
+  { store: 'income_sources', create: 'source.create', remove: null, overwrites: false },
+  { store: 'incomes', create: 'income.create', remove: 'income.delete', overwrites: false },
+  { store: 'accounts', create: 'account.set', remove: null, overwrites: true },
+  { store: 'balances', create: 'balance.set', remove: 'balance.delete', overwrites: true },
 ]
 
 export type GroupName = 'category' | 'source'
@@ -216,6 +246,30 @@ export async function loadIncomes(
     )
 }
 
+export async function loadAccounts(userId: string): Promise<Account[]> {
+  const rows = await db.readAll<LocalAccount>('accounts')
+  return rows.filter((row) => row.user_id === userId).sort(byName)
+}
+
+/**
+ * Every balance the account has ever recorded, oldest month first.
+ *
+ * Unlike expenses and incomes this takes no day range. One row per account per
+ * month is a couple of hundred rows after a decade of a dozen accounts, and
+ * net worth is a running series: a window over it would have to be widened by
+ * one month anyway to know what the first month in view changed *from*.
+ */
+export async function loadBalances(userId: string): Promise<Balance[]> {
+  const rows = await db.readAll<LocalBalance>('balances')
+  return rows
+    .filter((row) => row.user_id === userId)
+    .sort(
+      (a, b) =>
+        a.as_of.localeCompare(b.as_of) ||
+        a.created_at.localeCompare(b.created_at),
+    )
+}
+
 export async function readOutbox(userId: string): Promise<OutboxOp[]> {
   const rows = await db.readAll<OutboxOp>('outbox')
   return rows
@@ -344,6 +398,98 @@ export async function addIncome(
 }
 
 /**
+ * Creates an account, or replaces one that already exists.
+ *
+ * One function for both because the row is small and complete: a rename, an
+ * archive and a first creation all write the same four fields, and the op is
+ * an upsert either way. Passing an `id` is what says "this one", and a caller
+ * that has an account in hand can spread it and change one field.
+ */
+export async function setAccount(
+  userId: string,
+  input: { id?: string; name: string; kind: AccountKind; is_active: boolean },
+): Promise<Account> {
+  const row: LocalAccount = {
+    id: input.id ?? uuid(),
+    user_id: userId,
+    name: input.name.trim(),
+    kind: input.kind,
+    is_active: input.is_active,
+  }
+
+  await db.put('accounts', row)
+  await db.append({
+    user_id: userId,
+    kind: 'account.set',
+    row: {
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      is_active: row.is_active,
+    },
+  })
+
+  notifyChanged()
+  return row
+}
+
+/**
+ * Records what an account was worth at a month end, replacing any reading the
+ * same account already had for the same month.
+ *
+ * The lookup for that existing row is the important line. Reusing its id turns
+ * a correction into an update of one row rather than a second row for the same
+ * month, which is what keeps the local store agreeing with the unique
+ * constraint the server enforces — and means the upsert lands on `id` like
+ * every other push, instead of needing a conflict target of its own.
+ *
+ * `as_of` is expected to be a month end already; ./format's `monthEnd` is what
+ * callers use to get one, and the server rejects anything else.
+ */
+export async function setBalance(
+  userId: string,
+  input: {
+    account_id: string
+    as_of: string
+    amount: number
+    note: string | null
+  },
+): Promise<Balance> {
+  const existing = (await db.readAll<LocalBalance>('balances')).find(
+    (row) =>
+      row.user_id === userId &&
+      row.account_id === input.account_id &&
+      row.as_of === input.as_of,
+  )
+
+  const row: LocalBalance = {
+    id: existing?.id ?? uuid(),
+    user_id: userId,
+    // Kept from the original reading, so re-recording a month does not shuffle
+    // it to the end of a list ordered by when things were entered.
+    created_at: existing?.created_at ?? new Date().toISOString(),
+    ...input,
+  }
+
+  await db.put('balances', row)
+  await db.append({
+    user_id: userId,
+    kind: 'balance.set',
+    row: {
+      id: row.id,
+      account_id: row.account_id,
+      as_of: row.as_of,
+      amount: row.amount,
+      note: row.note,
+      created_at: row.created_at,
+    },
+  })
+
+  notifyChanged()
+  return row
+}
+
+/**
  * Drops a row locally and queues the delete — unless the create for it is
  * still sitting in the outbox, in which case that create is dropped instead.
  * A row the server has never seen should not be described to it twice.
@@ -386,6 +532,31 @@ export function removeIncome(userId: string, id: string): Promise<void> {
     { create: 'income.create', remove: 'income.delete' },
     id,
   )
+}
+
+export function removeBalance(userId: string, id: string): Promise<void> {
+  return removeEntry(
+    userId,
+    'balances',
+    { create: 'balance.set', remove: 'balance.delete' },
+    id,
+  )
+}
+
+/**
+ * Forgets a local balance without telling the server anything.
+ *
+ * The repair for the one collision this schema can produce: two devices, both
+ * offline, both recording the same account and month. Each minted its own id,
+ * so the second to arrive is refused by the unique constraint on
+ * (account, month) — and the right outcome is simply to keep the row that won.
+ * Dropping the local loser lets the pull that follows bring it down, which is
+ * a plain `removeEntry` minus the queued delete that would take the winner
+ * with it. See ./sync's `adoptRemoteBalance`.
+ */
+export async function discardBalance(id: string): Promise<void> {
+  await db.remove('balances', [id])
+  notifyChanged()
 }
 
 /**
@@ -454,11 +625,29 @@ export async function replaceFromRemote(
 
     const incoming: Owned[] = remote[table.store]
     const incomingIds = new Set(incoming.map((row) => row.id))
+    const keptIds = new Set(kept.map((row) => row.id))
 
+    // Who wins when a pulled row and a still-queued local row share an id
+    // depends on what the queued op means.
+    //
+    // For an insert-only create, an id in both can only be a push that reached
+    // Postgres and lost its response: the server has the row, its copy is the
+    // one with the server's defaults on it, and the queued op will write the
+    // same values again anyway. Incoming wins.
+    //
+    // For an upsert — an account renamed, a balance corrected — an id in both
+    // is the normal case, because the row was already there before it was
+    // edited. Letting incoming win would revert the edit on screen every time
+    // a sync ran before it was pushed, which on a slow connection is most of
+    // them. The local row wins, and stays until the push makes it moot.
     await db.replaceAll(table.store, [
       ...local.filter((row) => row.user_id !== userId),
-      ...incoming.filter((row) => !deletedLocally.has(row.id)),
-      ...kept.filter((row) => !incomingIds.has(row.id)),
+      ...incoming.filter(
+        (row) =>
+          !deletedLocally.has(row.id) &&
+          !(table.overwrites && keptIds.has(row.id)),
+      ),
+      ...kept.filter((row) => table.overwrites || !incomingIds.has(row.id)),
     ])
   }
 

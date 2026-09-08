@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import Balances from './Balances'
 import Charts from './Charts'
 import EntryForm from './EntryForm'
 import InstallButton from './InstallButton'
@@ -22,9 +23,12 @@ const now = new Date()
 const STEP =
   'btn-quiet h-9 w-9 rounded-full p-0 text-xl leading-none disabled:opacity-35'
 
+// Flows first, then the stock they move: the month you are working in, the
+// trend across several of them, and the balance sheet all of it adds up to.
 const TABS = [
   { id: 'month', label: 'Month' },
   { id: 'charts', label: 'Charts' },
+  { id: 'worth', label: 'Net Worth' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -234,9 +238,7 @@ function Dashboard({ account }: { account: Account }) {
         </div>
       </header>
 
-      {/* Two views over the same account: the month you are working in, and
-          the charts across several of them. */}
-      <div className="mt-5 flex justify-center gap-2">
+      <div className="mt-5 flex flex-wrap justify-center gap-2">
         {TABS.map(({ id, label }) => (
           <button
             key={id}
@@ -272,13 +274,20 @@ function Dashboard({ account }: { account: Account }) {
         </div>
       )}
 
-      <section id="view" aria-label={tab === 'charts' ? 'Charts' : 'This month'}>
+      <section
+        id="view"
+        aria-label={
+          tab === 'charts' ? 'Charts' : tab === 'worth' ? 'Net worth' : 'This month'
+        }
+      >
         {/* An account whose first sync is still running has nothing on this
-            device yet, so neither view has anything true to show. */}
+            device yet, so no view has anything true to show. */}
         {firstEverSync ? (
           <p className="my-8 text-center text-muted">Loading…</p>
         ) : tab === 'charts' ? (
           <Charts userId={account.id} />
+        ) : tab === 'worth' ? (
+          <Balances userId={account.id} />
         ) : (
           monthView
         )}

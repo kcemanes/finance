@@ -12,7 +12,15 @@
  */
 import * as store from './store'
 import { requestSync } from './sync'
-import type { Category, Expense, Income, IncomeSource } from '../types'
+import type {
+  Account,
+  AccountKind,
+  Balance,
+  Category,
+  Expense,
+  Income,
+  IncomeSource,
+} from '../types'
 
 export function listCategories(userId: string): Promise<Category[]> {
   return store.loadCategories(userId)
@@ -91,5 +99,48 @@ export async function deleteExpense(userId: string, id: string): Promise<void> {
 
 export async function deleteIncome(userId: string, id: string): Promise<void> {
   await store.removeIncome(userId, id)
+  void requestSync(userId)
+}
+
+export function listAccounts(userId: string): Promise<Account[]> {
+  return store.loadAccounts(userId)
+}
+
+export function listBalances(userId: string): Promise<Balance[]> {
+  return store.loadBalances(userId)
+}
+
+/**
+ * Creates an account or replaces an existing one. Passing an `id` is what
+ * makes it the latter — see the note on `store.setAccount`.
+ */
+export async function saveAccount(
+  userId: string,
+  input: { id?: string; name: string; kind: AccountKind; is_active: boolean },
+): Promise<Account> {
+  const account = await store.setAccount(userId, input)
+  void requestSync(userId)
+  return account
+}
+
+/**
+ * Records what an account was worth at a month end, replacing whatever it said
+ * about that month before.
+ */
+export async function saveBalance(
+  userId: string,
+  input: {
+    account_id: string
+    as_of: string
+    amount: number
+    note: string | null
+  },
+): Promise<void> {
+  await store.setBalance(userId, input)
+  void requestSync(userId)
+}
+
+export async function deleteBalance(userId: string, id: string): Promise<void> {
+  await store.removeBalance(userId, id)
   void requestSync(userId)
 }

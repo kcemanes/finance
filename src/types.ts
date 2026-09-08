@@ -41,3 +41,43 @@ export type Income = {
   note: string | null
   created_at: string
 }
+
+/**
+ * A place money sits: a bank account, an investment account, something owned
+ * outright, or something owed.
+ *
+ * Not to be confused with the `Account` in ./lib/auth, which is the signed-in
+ * *user*. That one is only ever held as the `account` prop; these are always a
+ * list called `accounts`.
+ *
+ * `kind` is what carries direction — a debt holds a positive amount and is
+ * subtracted because of what it is, not because of a sign. `is_active` is
+ * archiving rather than deletion: an account that is closed keeps every
+ * balance it ever held, because those are still part of what net worth was in
+ * those months, and simply stops being asked about.
+ */
+export type AccountKind = 'bank' | 'investment' | 'other_asset' | 'debt'
+
+export type Account = {
+  id: string
+  name: string
+  kind: AccountKind
+  is_active: boolean
+}
+
+/**
+ * What one account was worth at one month end.
+ *
+ * A snapshot, not a transaction: recording the same account and month twice
+ * replaces the earlier reading rather than adding to it, which is why the
+ * store looks for an existing row before it writes and the server takes these
+ * as upserts. `as_of` is always the last day of its month.
+ */
+export type Balance = {
+  id: string
+  account_id: string
+  as_of: string // YYYY-MM-DD, always a month end
+  amount: number
+  note: string | null
+  created_at: string
+}

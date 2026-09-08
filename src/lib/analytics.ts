@@ -4,9 +4,22 @@
  * Everything here is a pure function over rows the store has already handed
  * back, so it costs nothing to re-run on every render and works offline for
  * the same reason the rest of the app does: it never asks anyone anything.
+ *
+ * Two halves, in this order: the flow aggregations that the month and chart
+ * views are built from, and — under the "Net worth" banner further down — the
+ * balance-sheet ones. They share this file rather than splitting because the
+ * last function in it needs both.
  */
 import { monthBounds } from './format'
-import type { Category, Expense, Income, IncomeSource } from '../types'
+import type {
+  Account,
+  AccountKind,
+  Balance,
+  Category,
+  Expense,
+  Income,
+  IncomeSource,
+} from '../types'
 
 /** One month of both directions, plus the net between them. */
 export type MonthFlow = {
@@ -265,4 +278,250 @@ export function axisBounds(min: number, max: number, divisions: number) {
   for (let i = 0; i <= count; i++) ticks.push(from + i * step)
 
   return { low: from, high: to, ticks }
+}
+
+// ---------------------------------------------------------------------------
+// Net worth
+//
+// Everything above aggregates *flows* — money that crossed a line during a
+// month. What follows aggregates the *stock* those flows move: what each
+// account was worth at each month end, and what the whole balance sheet came
+// to.
+//
+// The two meet in `reconcile`, which is the only thing here that could not be
+// done with the balances alone, and the reason they are worth keeping in the
+// same app as the ledger.
+// ---------------------------------------------------------------------------
+
+/**
+ * The kinds an account can be, in the order a balance sheet lists them, with
+ * the labels the UI shows and the one fact the arithmetic needs.
+ *
+ * Ordering lives here rather than in the store because it is a presentation
+ * decision — the store sorts by name, as it does for every other parent — and
+ * because this is already where "which kinds are subtracted" is decided.
+ */
+export const ACCOUNT_KINDS: {
+  id: AccountKind
+  label: string
+  /** Subtracted from the total rather than added to it. */
+  debt: boolean
+}[] = [
+  { id: 'bank', label: 'Bank accounts', debt: false },
+  { id: 'investment', label: 'Investments', debt: false },
+  { id: 'other_asset', label: 'Other assets', debt: false },
+  { id: 'debt', label: 'Debt', debt: true },
+]
+
+const DEBT_KINDS = new Set(
+  ACCOUNT_KINDS.filter((kind) => kind.debt).map((kind) => kind.id),
+)
+
+/** What one account was worth at one month end, and where the figure came from. */
+export type Holding = {
+  account_id: string
+  amount: number
+  /**
+   * True when this is an earlier month's reading carried forward rather than
+   * one taken for this month. See `netWorthSeries` for why that is the default
+   * and not a gap.
+   */
+  carried: boolean
+}
+
+/** The whole balance sheet at one month end. */
+export type NetWorthPoint = {
+  key: string // YYYY-MM
+  year: number
+  month: number // 0-11, as Date uses
+  assets: number
+  debt: number
+  /** assets - debt. */
+  net: number
+  holdings: Holding[]
+  /** How many of the holdings were carried forward rather than read. */
+  carried: number
+}
+
+/**
+ * Net worth at every month end that was actually recorded, oldest first.
+ *
+ * Two rules do all the work, and both are the opposite of what a spreadsheet
+ * of the same shape does by default.
+ *
+ * **A month with no readings is not a point.** The series stops at the last
+ * month anyone wrote something down, rather than running on to the end of the
+ * year at zero. A grid has a column for every month whether or not it was
+ * filled in, so its chart plots the empty ones as zero and the line falls off
+ * a cliff at today; there is no such column here, and nothing to fall off.
+ *
+ * **An account that was not re-read keeps its last known value.** Recording a
+ * month means typing in the two or three accounts that moved, not all
+ * thirteen — so treating a blank as zero would delete most of the balance
+ * sheet every month. Carried figures are marked rather than hidden, and the
+ * count is kept on the point, because the difference matters when reading the
+ * chart: a month where everything was carried is last month redrawn, not news.
+ *
+ * An archived account is carried only as far as its final reading. That is
+ * what stops closing an account from either dragging a stale figure forward
+ * forever or rewriting the months it was genuinely part of.
+ */
+export function netWorthSeries(
+  accounts: Account[],
+  balances: Balance[],
+): NetWorthPoint[] {
+  const kinds = new Map(accounts.map((account) => [account.id, account.kind]))
+  const isActive = new Map(
+    accounts.map((account) => [account.id, account.is_active]),
+  )
+
+  // Readings grouped by the month they describe, and the last month each
+  // account was read in.
+  const readings = new Map<string, Balance[]>()
+  const lastRead = new Map<string, string>()
+
+  for (const balance of balances) {
+    // as_of is YYYY-MM-DD and always a month end, so its first seven
+    // characters are the month it belongs to.
+    const key = balance.as_of.slice(0, 7)
+    const month = readings.get(key)
+    if (month) month.push(balance)
+    else readings.set(key, [balance])
+
+    const seen = lastRead.get(balance.account_id)
+    if (!seen || key > seen) lastRead.set(balance.account_id, key)
+  }
+
+  // Ascending, which is what lets a single forward pass carry values along.
+  const keys = [...readings.keys()].sort()
+
+  const latest = new Map<string, number>()
+  const points: NetWorthPoint[] = []
+
+  for (const key of keys) {
+    const fresh = new Set<string>()
+    for (const balance of readings.get(key) ?? []) {
+      latest.set(balance.account_id, balance.amount)
+      fresh.add(balance.account_id)
+    }
+
+    const holdings: Holding[] = []
+    let assets = 0
+    let debt = 0
+
+    for (const [id, amount] of latest) {
+      const kind = kinds.get(id)
+      // A reading with no account is not reachable through the app — the
+      // foreign key is `on delete restrict` — but a pull that caught another
+      // device mid-write could land one before its parent arrives.
+      if (!kind) continue
+      // Past the month an archived account was last a real place money sat.
+      if (!isActive.get(id) && key > (lastRead.get(id) ?? key)) continue
+
+      holdings.push({ account_id: id, amount, carried: !fresh.has(id) })
+      if (DEBT_KINDS.has(kind)) debt += amount
+      else assets += amount
+    }
+
+    const [year, month] = key.split('-').map(Number)
+    points.push({
+      key,
+      year,
+      month: month - 1,
+      assets,
+      debt,
+      net: assets - debt,
+      holdings,
+      carried: holdings.filter((holding) => holding.carried).length,
+    })
+  }
+
+  return points
+}
+
+/**
+ * What moved net worth between one reading and the next, split into the part
+ * the ledger accounts for and the part it does not.
+ */
+export type Reconciliation = {
+  key: string // YYYY-MM of the later reading
+  year: number
+  month: number
+  /** Net worth at this reading, less net worth at the previous one. */
+  change: number
+  /** Income less expenses over every month since that previous reading. */
+  flow: number
+  /** change - flow: what the ledger does not explain. */
+  unexplained: number
+  /** Months between the two readings. Usually 1, more if a month was skipped. */
+  span: number
+  /** False when the ledger was not loaded for every month in the span. */
+  complete: boolean
+}
+
+/**
+ * Joins the balance sheet to the ledger, month by month.
+ *
+ * This is the one figure neither half can produce alone. Net worth moved by
+ * some amount; the ledger says how much of that was money arriving and
+ * leaving; the remainder is everything else — market movement, interest, a
+ * revaluation, and any spending that never got typed in. Naming it as a
+ * remainder rather than as "returns" is deliberate: it is defined by what it
+ * is not, and an unrecorded month of expenses lands in it too.
+ *
+ * A transfer between two of your own accounts correctly contributes nothing to
+ * any of the three figures, which is the other reason to measure this way
+ * rather than by summing transactions.
+ */
+export function reconcile(
+  points: NetWorthPoint[],
+  months: MonthFlow[],
+): Reconciliation[] {
+  const flows = new Map(months.map((month) => [month.key, month]))
+  const rows: Reconciliation[] = []
+
+  for (let index = 1; index < points.length; index++) {
+    const previous = points[index - 1]
+    const point = points[index]
+
+    // Every month after the previous reading, up to and including this one.
+    // Stepping a Date rather than counting keeps a span that crosses a year
+    // boundary honest.
+    const span: string[] = []
+    const cursor = new Date(previous.year, previous.month + 1, 1)
+    for (;;) {
+      const key = monthKey(cursor.getFullYear(), cursor.getMonth())
+      if (key > point.key) break
+      span.push(key)
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+
+    let flow = 0
+    let complete = true
+    for (const key of span) {
+      const month = flows.get(key)
+      if (!month) {
+        // The caller's window did not reach this far back. Better to say the
+        // split is partial than to report a remainder built from a flow of
+        // zero, which would read as an enormous unexplained gain.
+        complete = false
+        continue
+      }
+      flow += month.net
+    }
+
+    const change = point.net - previous.net
+    rows.push({
+      key: point.key,
+      year: point.year,
+      month: point.month,
+      change,
+      flow,
+      unexplained: change - flow,
+      span: span.length,
+      complete,
+    })
+  }
+
+  return rows
 }

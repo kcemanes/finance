@@ -2,8 +2,11 @@
 
 A small personal budget tracker: log expenses by category and income by
 source, set a monthly budget per category, and see where the month went.
-Each account only ever sees its own data. Light/dark theme and the display
-currency are picked in the header and remembered per browser.
+Record what each of your accounts is worth at a month end and it tracks net
+worth too — then tells you how much of each month's change the ledger
+actually accounts for. Each account only ever sees its own data. Light/dark
+theme and the display currency are picked in the header and remembered per
+browser.
 
 It is an installable, offline-first app: it launches, reads and records
 entries with no connection, and syncs when one comes back. See
@@ -38,19 +41,24 @@ Postgres in the background — see [Offline](#offline).
 | [src/hooks/useSession.ts](src/hooks/useSession.ts) | The signed-in account, resolved so that being offline never looks like being signed out |
 | [src/hooks/useSyncState.ts](src/hooks/useSyncState.ts) | Subscribes the header to the sync engine's status and queue depth |
 | [src/hooks/useBudgetData.ts](src/hooks/useBudgetData.ts) | Categories and income sources, plus a date range of expenses and incomes, re-read whenever the store changes |
+| [src/hooks/useNetWorth.ts](src/hooks/useNetWorth.ts) | Accounts and every balance ever recorded — no date range, because net worth is a running series |
 | [src/hooks/useElementWidth.ts](src/hooks/useElementWidth.ts) | The rendered width of an element, so a chart can draw at one unit per pixel |
 | [src/hooks/usePwa.ts](src/hooks/usePwa.ts) | Subscribes to "an update is waiting" and "the browser is offering an install" |
 | [src/lib/supabase.ts](src/lib/supabase.ts) | The single Supabase client; fails loudly if env vars are missing |
 | [src/lib/api.ts](src/lib/api.ts) | All reads and writes for both directions of money — local, never networked |
 | [src/lib/db.ts](src/lib/db.ts) | Opening IndexedDB, and reading or writing whole stores |
-| [src/lib/store.ts](src/lib/store.ts) | Categories, expenses, income sources, incomes, and the outbox |
+| [src/lib/store.ts](src/lib/store.ts) | Categories, expenses, income sources, incomes, accounts, balances, and the outbox |
 | [src/lib/sync.ts](src/lib/sync.ts) | The only module that talks to Supabase |
 | [src/lib/auth.ts](src/lib/auth.ts) | Who is signed in, in a form that survives being offline |
 | [src/lib/pwa.ts](src/lib/pwa.ts) | Service worker registration, update and install prompts |
 | [src/lib/format.ts](src/lib/format.ts) | Date and month range helpers |
-| [src/lib/analytics.ts](src/lib/analytics.ts) | The per-month, per-parent and actual-against-target aggregations behind the charts, plus both axis scales |
+| [src/lib/analytics.ts](src/lib/analytics.ts) | The per-month, per-parent and actual-against-target aggregations behind the charts, plus both axis scales; below those, the net worth series and the reconciliation that joins it to the ledger |
 | [src/lib/theme.ts](src/lib/theme.ts) | Theme choice, storage, and the `data-theme` stamp |
 | [src/lib/currency.ts](src/lib/currency.ts) | The currency list, money formatting, and storage |
+| [src/components/Balances.tsx](src/components/Balances.tsx) | The Net worth tab: the balance sheet, the trend, and what moved it |
+| [src/components/SnapshotForm.tsx](src/components/SnapshotForm.tsx) | Month-end entry — one prefilled field per account, writing only what changed |
+| [src/components/NetWorthChart.tsx](src/components/NetWorthChart.tsx) | Net worth over the months that were actually recorded |
+| [src/components/AccountsEditor.tsx](src/components/AccountsEditor.tsx) | Renaming, reclassifying and archiving accounts |
 | [src/components/ThemeToggle.tsx](src/components/ThemeToggle.tsx) | The light/dark button, used by both Login and Dashboard |
 | [src/components/SyncStatus.tsx](src/components/SyncStatus.tsx) | The header pill: offline, syncing, or changes still queued |
 | [src/components/UpdatePrompt.tsx](src/components/UpdatePrompt.tsx) | Offers a downloaded update rather than reloading unasked |
@@ -212,6 +220,141 @@ upgrade, `onblocked` resolves null, and *that* tab drops to the in-memory
 fallback for the rest of its life, because `opening` is memoized. Writes
 still work and still sync — they just do not outlive the tab. A reload clears
 it, which is what the update prompt is already nudging people towards.
+
+## Net worth
+
+The two directions of money above are *flows*: amounts that crossed a line
+during a month. The **Net worth** tab records the *stock* those flows move —
+what each account was worth at each month end — and then subtracts one from
+the other.
+
+Neither can be derived from the other, which is the whole reason both are
+here. A market gain moves net worth with no transaction behind it. A transfer
+between two of your own accounts is a transaction that moves nothing. And the
+figure that matters most is only available when you have both:
+
+> Net worth went up ₱163,733 last month. The ledger says you saved ₱135,000
+> of that. The other ₱28,733 is the market.
+
+### Accounts and balances
+
+A third table pair, following the same convention as the first two:
+[`accounts`](supabase/schema.sql) is the parent, `balances` the rows under it,
+every amount positive, and direction carried by something other than a sign —
+here `accounts.kind`, one of `bank`, `investment`, `other_asset` or `debt`. A
+debt holds what is owed and is subtracted because of what it is.
+
+A balance is a **snapshot, not a transaction**. One row per account per month
+end, and recording the same month twice replaces the earlier reading rather
+than adding to it. `unique (user_id, account_id, as_of)` enforces that, and a
+check constraint pins `as_of` to the last day of its month so a second,
+differently-dated row cannot slip past the constraint and be counted twice.
+
+Because a correction has to land on the row that is already there,
+`store.setBalance()` looks for an existing row for that account and month and
+reuses its id. That is what keeps the local copy agreeing with the server's
+unique constraint, and what lets the push stay an ordinary upsert on `id` like
+every other write in the app.
+
+### Recording a month
+
+The form is a vertical list of accounts with an amount against each, not a
+grid. A grid of accounts across months is the right way to *read* a balance
+sheet and the worst way to write one — thirteen columns scrolled sideways on a
+phone with the row labels off screen. The list is the same thirteen numbers in
+a minute on the couch, and it works with no connection like everything else.
+
+Two rules make it short:
+
+- **Every field starts on the figure that already applies** — this month's
+  reading if one was taken, otherwise the last one carried forward, labelled
+  so a carried number is never mistaken for a fresh one.
+- **Only fields you changed are written.** Leaving an account alone is not an
+  omission; carrying forward already says it did not move. So the two or three
+  that did move are the whole job, and the store does not fill with rows
+  restating last month.
+
+Clearing a field withdraws that month's reading. Typing `0` is different, and
+means the account really was empty.
+
+### What the chart does that a spreadsheet does not
+
+`netWorthSeries()` produces a point only for months that were actually
+recorded. A grid has a column for every month whether or not it was filled in,
+so its chart plots the empty ones as zero and the line falls off a cliff at
+today and runs flat to the end of the year. There is no such column here and
+nothing to fall off: the series simply stops at the last reading.
+
+The other half of the same idea is carry-forward. An account that was not
+re-read keeps its last known value rather than counting as zero, so a month
+where you only updated three accounts is still a complete balance sheet. Every
+carried figure is marked, and the count rides on the point, because it changes
+how to read the chart: a month where everything was carried is last month
+redrawn, not news.
+
+An archived account is carried only as far as its final reading. That is what
+stops closing an account from either dragging a stale figure forward forever
+or rewriting the months it was genuinely part of. There is no delete, for the
+same reason and because the foreign key is `on delete restrict`.
+
+### Reconciliation
+
+`reconcile()` is the join between the two halves. For each step between
+readings it reports the change in net worth, the ledger's income less expenses
+over the months in between, and the remainder.
+
+The remainder is named as a remainder — *Other*, not *returns*. It is defined
+by what it is not, so unrecorded spending lands in it alongside market
+movement and interest. When the ledger was not loaded for every month of a
+span the split is shown as `—` rather than guessed, because a flow silently
+treated as zero would read as an enormous unexplained gain.
+
+### One currency
+
+Balances are plain numbers in whatever currency you think in, exactly as
+expenses and incomes are — [`currency.ts`](src/lib/currency.ts) relabels
+figures, it never converts them. So there is deliberately no currency column
+on `accounts`: it would imply a conversion that does not happen, and the first
+foreign-currency account would be added to the total at face value. Until
+there is an FX rate stored per snapshot to convert with, an account in another
+currency is better left out — which is what the spreadsheet this replaces was
+already doing by hand.
+
+### What the sync engine had to learn
+
+Two changes, both in the merge rather than the transport.
+
+`account.set` and `balance.set` are upserts of rows that may already exist,
+where every other outbox kind is a first sighting of a new row. That flips who
+wins in `replaceFromRemote()` when a pulled row and a still-queued local row
+share an id: for a create, incoming wins (the server has the row and the
+queued op would rewrite the same values); for an upsert, the local row wins,
+or an unsynced correction would revert on screen every time a sync ran before
+it was pushed. The `overwrites` flag on each entry in `SYNCED` is that
+distinction.
+
+The other is a new collision. Two devices, both offline, both told to record
+August: each mints its own id and the second is refused by the unique
+constraint on (account, month). There is nothing to merge — the two rows
+describe the same account and the same month and differ only in the id — so
+`adoptRemoteBalance()` forgets the local one and lets the pull bring down the
+one that won.
+
+There is deliberately no equivalent for a refused `account.set`. That would be
+a duplicate *name*, and the repair `mergeDuplicateName()` performs for
+categories is only safe when the two rows were meant to be the same thing. An
+`account.set` is as often a rename as a creation, and folding a renamed
+account's whole history into whichever account already held that name is not
+recoverable. Both forms check names against the ones already on the device
+instead, which makes the collision rare enough to simply report.
+
+### Adding it to a browser that already has data
+
+The two new stores arrive as `DB_VERSION` 3. As with the bump to 2,
+`onupgradeneeded` creates whatever is missing and leaves what exists alone, so
+there is no data migration — and the same cost applies: a tab still holding
+version 2 open blocks the upgrade and drops itself to the in-memory fallback
+until it is reloaded.
 
 ## Offline
 

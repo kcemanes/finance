@@ -87,3 +87,15 @@ export function monthBounds(year: number, month: number) {
     to: toDay(year, month, new Date(year, month + 1, 0).getDate()),
   }
 }
+
+/**
+ * The last day of a month, as YYYY-MM-DD.
+ *
+ * The date every balance is stamped with. Snapshots are dated at the month end
+ * rather than the day they were typed, so that "August" is one comparable
+ * point across every account however late in September you got round to
+ * writing it down. The server enforces the same rule with a check constraint.
+ */
+export function monthEnd(year: number, month: number) {
+  return monthBounds(year, month).to
+}

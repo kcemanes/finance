@@ -17,6 +17,7 @@
 import { supabase } from './supabase'
 import {
   GROUPS,
+  discardBalance,
   dropOps,
   loadCategories,
   readOutbox,
@@ -26,6 +27,8 @@ import {
 } from './store'
 import type {
   GroupName,
+  LocalAccount,
+  LocalBalance,
   LocalCategory,
   LocalExpense,
   LocalIncome,
@@ -123,6 +126,12 @@ function subject(op: OutboxOp): string {
       return 'a deleted expense'
     case 'income.delete':
       return 'a deleted income'
+    case 'account.set':
+      return `account “${String(op.row.name)}”`
+    case 'balance.set':
+      return `balance of ${String(op.row.amount)} at ${String(op.row.as_of)}`
+    case 'balance.delete':
+      return 'a deleted balance'
   }
 }
 
@@ -164,6 +173,16 @@ function apply(op: OutboxOp) {
       return supabase.from('expenses').delete().eq('id', op.row.id as string)
     case 'income.delete':
       return supabase.from('incomes').delete().eq('id', op.row.id as string)
+    // Both of these are upserts in the store's own terms too — an account
+    // renamed, a balance corrected — so unlike the creates above, landing on
+    // an id that already exists is the expected case rather than a lost
+    // response being replayed. The call is identical either way.
+    case 'account.set':
+      return supabase.from('accounts').upsert(op.row, { onConflict: 'id' })
+    case 'balance.set':
+      return supabase.from('balances').upsert(op.row, { onConflict: 'id' })
+    case 'balance.delete':
+      return supabase.from('balances').delete().eq('id', op.row.id as string)
   }
 }
 
@@ -200,6 +219,42 @@ async function mergeDuplicateName(
     if (later.row[fk] === op.row.id) later.row[fk] = winner
   }
 
+  return true
+}
+
+/**
+ * Handles a balance the server refused because that account already has a
+ * reading for that month — the only other collision two offline devices can
+ * produce, and the more likely of the two: both were told to record August.
+ *
+ * There is nothing to merge. The two rows describe the same account and the
+ * same month end and differ only in the id each device happened to mint, so
+ * the repair is to keep the one that won and forget the local one; the pull
+ * that follows brings it down. Returns false if the rejection was something
+ * else — a check constraint on the amount, an account this device knows about
+ * and the server does not — in which case the caller reports it.
+ *
+ * There is deliberately no equivalent for a refused `account.set`. That would
+ * be a duplicate *name*, and the repair `mergeDuplicateName` performs for
+ * categories — fold this one into the winner — is only safe when the two rows
+ * were meant to be the same thing. An account.set is as often a rename as a
+ * creation, and folding a renamed account's whole history into whichever
+ * account already held that name is not recoverable. The form checks names
+ * against the ones already on the device, which is what makes the collision
+ * rare enough to simply report.
+ */
+async function adoptRemoteBalance(op: OutboxOp): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('balances')
+    .select('id')
+    .eq('account_id', op.row.account_id as string)
+    .eq('as_of', op.row.as_of as string)
+    .maybeSingle()
+
+  const winner = (data as { id: string } | null)?.id
+  if (error || !winner || winner === op.row.id) return false
+
+  await discardBalance(op.row.id as string)
   return true
 }
 
@@ -247,6 +302,11 @@ async function push(userId: string): Promise<PushResult> {
       }
     }
 
+    if (op.kind === 'balance.set' && (await adoptRemoteBalance(op))) {
+      settled.push(op.seq)
+      continue
+    }
+
     rejected.push(describe(op, message ?? 'rejected by the server'))
     settled.push(op.seq)
   }
@@ -278,12 +338,15 @@ async function selectAll(table: string, columns: string): Promise<Record<string,
 }
 
 async function pull(userId: string): Promise<RemoteRows> {
-  const [categories, expenses, sources, incomes] = await Promise.all([
-    selectAll('expense_categories', 'id, name, monthly_budget'),
-    selectAll('expenses', 'id, category_id, spent_on, amount, note, created_at'),
-    selectAll('income_sources', 'id, name, expected_monthly'),
-    selectAll('incomes', 'id, source_id, received_on, amount, note, created_at'),
-  ])
+  const [categories, expenses, sources, incomes, accounts, balances] =
+    await Promise.all([
+      selectAll('expense_categories', 'id, name, monthly_budget'),
+      selectAll('expenses', 'id, category_id, spent_on, amount, note, created_at'),
+      selectAll('income_sources', 'id, name, expected_monthly'),
+      selectAll('incomes', 'id, source_id, received_on, amount, note, created_at'),
+      selectAll('accounts', 'id, name, kind, is_active'),
+      selectAll('balances', 'id, account_id, as_of, amount, note, created_at'),
+    ])
 
   // numeric() arrives as a string once the value is large enough, so every
   // money column is coerced back on the way in.
@@ -310,6 +373,15 @@ async function pull(userId: string): Promise<RemoteRows> {
       user_id: userId,
       amount: Number(row.amount),
     })) as LocalIncome[],
+    accounts: accounts.map((row) => ({
+      ...row,
+      user_id: userId,
+    })) as LocalAccount[],
+    balances: balances.map((row) => ({
+      ...row,
+      user_id: userId,
+      amount: Number(row.amount),
+    })) as LocalBalance[],
   }
 }
 

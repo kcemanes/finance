@@ -4,8 +4,8 @@
  * IndexedDB is the only browser storage that survives a reload, holds more
  * than a few megabytes, and can be written from a page that has no network.
  * This module is the thin part: opening the database, and reading or writing
- * whole object stores. Everything that knows what a category, an expense or
- * an income *is* lives in ./store.
+ * whole object stores. Everything that knows what a category, an expense, an
+ * income, an account or a balance *is* lives in ./store.
  *
  * Filtering — by user, by month — happens in JavaScript over a full store
  * read rather than through IndexedDB indexes. A personal budget is a few
@@ -21,23 +21,25 @@
 const DB_NAME = 'budget'
 
 /**
- * Bumped to 2 to add the two income stores. `onupgradeneeded` below creates
- * whatever is missing and leaves everything that already exists alone, so the
- * upgrade needs no data migration.
+ * Bumped to 3 to add the two balance-sheet stores, after 2 added the two
+ * income ones. `onupgradeneeded` below creates whatever is missing and leaves
+ * everything that already exists alone, so an upgrade needs no data migration.
  *
- * It does carry one cost, and this is the first version bump the app has ever
- * shipped: a second tab still holding version 1 open blocks the upgrade, and
- * `onblocked` resolves null — which drops *this* tab to the in-memory fallback
- * for the rest of its life, because `opening` is memoized. Writes still work
- * and still sync; they just do not outlive the tab. A reload clears it.
+ * It does carry one cost, and every bump pays it: a second tab still holding
+ * the previous version open blocks the upgrade, and `onblocked` resolves
+ * null — which drops *this* tab to the in-memory fallback for the rest of its
+ * life, because `opening` is memoized. Writes still work and still sync; they
+ * just do not outlive the tab. A reload clears it.
  */
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 export type StoreName =
   | 'categories'
   | 'expenses'
   | 'income_sources'
   | 'incomes'
+  | 'accounts'
+  | 'balances'
   | 'outbox'
   | 'meta'
 
@@ -47,6 +49,8 @@ const STORES: Record<StoreName, { keyPath: string; autoIncrement: boolean }> = {
   expenses: { keyPath: 'id', autoIncrement: false },
   income_sources: { keyPath: 'id', autoIncrement: false },
   incomes: { keyPath: 'id', autoIncrement: false },
+  accounts: { keyPath: 'id', autoIncrement: false },
+  balances: { keyPath: 'id', autoIncrement: false },
   outbox: { keyPath: 'seq', autoIncrement: true },
   meta: { keyPath: 'key', autoIncrement: false },
 }
