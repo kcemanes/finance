@@ -25,6 +25,7 @@
  * already recorded is corrected. So their outbox ops are upserts rather than
  * creates, which changes one thing further down — see `overwrites`.
  */
+import { forgetReads } from './cache'
 import * as db from './db'
 import type {
   Account,
@@ -705,5 +706,7 @@ export async function remapGroup(
 /** Everything this browser holds, dropped. Used on an explicit sign-out. */
 export async function clearLocalData(): Promise<void> {
   await db.clearAll()
+  // The read cache in ./cache is a copy of what was just wiped.
+  forgetReads()
   notifyChanged()
 }

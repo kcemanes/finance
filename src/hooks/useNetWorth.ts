@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react'
 import { listAccounts, listBalances } from '../lib/api'
+import { cachedRead, rememberRead } from '../lib/cache'
 import { subscribe } from '../lib/store'
 import type { Account, Balance } from '../types'
+
+/** Everything this hook's read produces, as it is held in ./lib/cache. */
+type NetWorthRows = { accounts: Account[]; balances: Balance[] }
+
+const key = (userId: string) => `networth:${userId}`
 
 /**
  * The balance sheet half of the account: every account, and every reading ever
@@ -16,12 +22,19 @@ import type { Account, Balance } from '../types'
  *
  * Same subscription as the other hook, for the same reason: a write from the
  * form or a sync landing rows from another device both change the store behind
- * the view's back.
+ * the view's back. And the same seed from ./lib/cache, which matters more here
+ * than there: Balances gates its whole render on `loading`, and the day range
+ * it reads the ledger for is derived from what this hook returns, so a mount
+ * that starts empty walks the view through two loading states rather than one.
  */
 export function useNetWorth(userId: string) {
-  const [accounts, setAccounts] = useState<Account[]>([])
-  const [balances, setBalances] = useState<Balance[]>([])
-  const [loading, setLoading] = useState(true)
+  // Read for the initial state only; every later value arrives from the effect
+  // below, which is also the only thing that writes an entry back.
+  const seed = cachedRead<NetWorthRows>(key(userId))
+
+  const [accounts, setAccounts] = useState<Account[]>(seed?.accounts ?? [])
+  const [balances, setBalances] = useState<Balance[]>(seed?.balances ?? [])
+  const [loading, setLoading] = useState(seed === undefined)
   const [error, setError] = useState<string | null>(null)
   const [reloadAt, setReloadAt] = useState(0)
 
@@ -40,6 +53,10 @@ export function useNetWorth(userId: string) {
         setAccounts(owned)
         setBalances(readings)
         setError(null)
+        rememberRead<NetWorthRows>(key(userId), {
+          accounts: owned,
+          balances: readings,
+        })
       } catch (err) {
         if (cancelled) return
         setError(

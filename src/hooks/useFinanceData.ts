@@ -5,8 +5,20 @@ import {
   listIncomeSources,
   listIncomes,
 } from '../lib/api'
+import { cachedRead, rememberRead } from '../lib/cache'
 import { subscribe } from '../lib/store'
 import type { Category, Expense, Income, IncomeSource } from '../types'
+
+/** Everything one range's read produces, as it is held in ./lib/cache. */
+type FinanceRows = {
+  categories: Category[]
+  expenses: Expense[]
+  sources: IncomeSource[]
+  incomes: Income[]
+}
+
+const key = (userId: string, from: string, to: string) =>
+  `finance:${userId}:${from}:${to}`
 
 /**
  * Both halves of the account — categories with expenses, income sources with
@@ -22,16 +34,25 @@ import type { Category, Expense, Income, IncomeSource } from '../types'
  * rows even after a decade — and a second hook for the other direction would
  * only be a second subscription saying the same thing.
  *
- * Reads are quick, so `loading` is really only true for the very first read of
- * a range. A later range change keeps the previous rows on screen until the
- * new ones arrive rather than blanking the view.
+ * Reads are quick, so `loading` is only ever true for a range this page has
+ * not read yet: a range it has comes back from ./lib/cache in the first frame
+ * instead, which is what keeps a tab returned to from flashing "Loading…" over
+ * rows it already had. A range change *within* one mount is unaffected either
+ * way — it keeps the rows on screen until the new ones arrive, rather than
+ * blanking the view.
  */
 export function useFinanceData(userId: string, from: string, to: string) {
-  const [categories, setCategories] = useState<Category[]>([])
-  const [expenses, setExpenses] = useState<Expense[]>([])
-  const [sources, setSources] = useState<IncomeSource[]>([])
-  const [incomes, setIncomes] = useState<Income[]>([])
-  const [loading, setLoading] = useState(true)
+  // Read for the initial state only; every later value arrives from the effect
+  // below, which is also the only thing that writes an entry back.
+  const seed = cachedRead<FinanceRows>(key(userId, from, to))
+
+  const [categories, setCategories] = useState<Category[]>(
+    seed?.categories ?? [],
+  )
+  const [expenses, setExpenses] = useState<Expense[]>(seed?.expenses ?? [])
+  const [sources, setSources] = useState<IncomeSource[]>(seed?.sources ?? [])
+  const [incomes, setIncomes] = useState<Income[]>(seed?.incomes ?? [])
+  const [loading, setLoading] = useState(seed === undefined)
   const [error, setError] = useState<string | null>(null)
   const [reloadAt, setReloadAt] = useState(0)
 
@@ -55,6 +76,12 @@ export function useFinanceData(userId: string, from: string, to: string) {
         setSources(srcs)
         setIncomes(received)
         setError(null)
+        rememberRead<FinanceRows>(key(userId, from, to), {
+          categories: cats,
+          expenses: spent,
+          sources: srcs,
+          incomes: received,
+        })
       } catch (err) {
         if (cancelled) return
         setError(
@@ -73,7 +100,8 @@ export function useFinanceData(userId: string, from: string, to: string) {
 
   // The two setters are handed back so a component that has just created a
   // category or a source can show it without waiting for the re-read the
-  // write will trigger anyway.
+  // write will trigger anyway. They deliberately do not touch the cache: that
+  // same re-read is what puts the new row in it, a moment later.
   return {
     categories,
     expenses,
