@@ -344,7 +344,7 @@ async function pull(userId: string): Promise<RemoteRows> {
       selectAll('expenses', 'id, category_id, spent_on, amount, note, created_at'),
       selectAll('income_sources', 'id, name, expected_monthly'),
       selectAll('incomes', 'id, source_id, received_on, amount, note, created_at'),
-      selectAll('accounts', 'id, name, kind, is_active'),
+      selectAll('accounts', 'id, name, kind, is_active, include_in_net_worth'),
       selectAll('balances', 'id, account_id, as_of, amount, note, created_at'),
     ])
 

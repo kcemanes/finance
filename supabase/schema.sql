@@ -196,11 +196,23 @@ create table if not exists public.accounts (
   -- worth was in those months, and deleting the parent would rewrite them out
   -- of the past. An inactive account keeps its rows and stops being asked for.
   is_active boolean not null default true,
+
+  -- On by default: most accounts belong in the total. Off is for a balance
+  -- that is real but not part of what you could actually spend — an
+  -- untouchable retirement account, or a car that only depreciates. Unlike
+  -- is_active, this changes nothing about whether the account is asked about
+  -- month to month, only whether its balance is added into net worth.
+  include_in_net_worth boolean not null default true,
   created_at timestamptz not null default now(),
 
   unique (user_id, name),
   unique (user_id, id)
 );
+
+-- The create above only reaches a project running this file for the first
+-- time. One that already has the table needs the column added separately.
+alter table public.accounts
+  add column if not exists include_in_net_worth boolean not null default true;
 
 -- ---------------------------------------------------------------------------
 -- Balances

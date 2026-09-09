@@ -3,7 +3,12 @@ import { saveAccount } from '../lib/api'
 import { ACCOUNT_KINDS } from '../lib/analytics'
 import type { Account, AccountKind } from '../types'
 
-type Draft = { name: string; kind: AccountKind; is_active: boolean }
+type Draft = {
+  name: string
+  kind: AccountKind
+  is_active: boolean
+  include_in_net_worth: boolean
+}
 
 /**
  * Renaming, reclassifying and archiving accounts.
@@ -33,6 +38,7 @@ function AccountsEditor({
       name: account.name,
       kind: account.kind,
       is_active: account.is_active,
+      include_in_net_worth: account.include_in_net_worth,
     }
 
   const isDirty = (account: Account) => {
@@ -40,7 +46,8 @@ function AccountsEditor({
     return (
       draft.name !== account.name ||
       draft.kind !== account.kind ||
-      draft.is_active !== account.is_active
+      draft.is_active !== account.is_active ||
+      draft.include_in_net_worth !== account.include_in_net_worth
     )
   }
 
@@ -82,6 +89,7 @@ function AccountsEditor({
         name,
         kind: draft.kind,
         is_active: draft.is_active,
+        include_in_net_worth: draft.include_in_net_worth,
       })
       setDrafts((current) => {
         const next = { ...current }
@@ -157,6 +165,18 @@ function AccountsEditor({
                 Open
               </label>
 
+              <label className="flex items-center gap-1.5 text-sm text-muted">
+                <input
+                  type="checkbox"
+                  className="accent-accent"
+                  checked={draft.include_in_net_worth}
+                  onChange={(e) =>
+                    edit(account, { include_in_net_worth: e.target.checked })
+                  }
+                />
+                In total
+              </label>
+
               <button
                 type="button"
                 className="btn-primary"
@@ -173,7 +193,10 @@ function AccountsEditor({
       <p className="mt-2 text-xs text-muted">
         Unticking <em>Open</em> archives an account: it stops appearing on the
         monthly form and stops being carried forward, and every balance it
-        already held stays exactly where it is.
+        already held stays exactly where it is. Unticking <em>In total</em>{' '}
+        keeps it on the balance sheet but leaves it out of the net worth
+        total — for something like a retirement account you won't touch or a
+        car that only depreciates.
       </p>
 
       {error && (

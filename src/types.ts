@@ -55,6 +55,12 @@ export type Income = {
  * archiving rather than deletion: an account that is closed keeps every
  * balance it ever held, because those are still part of what net worth was in
  * those months, and simply stops being asked about.
+ *
+ * `include_in_net_worth` is neither of those — the account still shows up
+ * every month and still appears on the balance sheet, it is just left out of
+ * the total. That is for things whose balance is real but not part of what
+ * you could actually spend: an untouchable retirement account, or a car that
+ * only ever depreciates.
  */
 export type AccountKind = 'bank' | 'investment' | 'other_asset' | 'debt'
 
@@ -63,6 +69,7 @@ export type Account = {
   name: string
   kind: AccountKind
   is_active: boolean
+  include_in_net_worth: boolean
 }
 
 /**

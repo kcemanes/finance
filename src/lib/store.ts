@@ -401,13 +401,19 @@ export async function addIncome(
  * Creates an account, or replaces one that already exists.
  *
  * One function for both because the row is small and complete: a rename, an
- * archive and a first creation all write the same four fields, and the op is
- * an upsert either way. Passing an `id` is what says "this one", and a caller
+ * archive and a first creation all write the same fields, and the op is an
+ * upsert either way. Passing an `id` is what says "this one", and a caller
  * that has an account in hand can spread it and change one field.
  */
 export async function setAccount(
   userId: string,
-  input: { id?: string; name: string; kind: AccountKind; is_active: boolean },
+  input: {
+    id?: string
+    name: string
+    kind: AccountKind
+    is_active: boolean
+    include_in_net_worth: boolean
+  },
 ): Promise<Account> {
   const row: LocalAccount = {
     id: input.id ?? uuid(),
@@ -415,6 +421,7 @@ export async function setAccount(
     name: input.name.trim(),
     kind: input.kind,
     is_active: input.is_active,
+    include_in_net_worth: input.include_in_net_worth,
   }
 
   await db.put('accounts', row)
@@ -426,6 +433,7 @@ export async function setAccount(
       name: row.name,
       kind: row.kind,
       is_active: row.is_active,
+      include_in_net_worth: row.include_in_net_worth,
     },
   })
 

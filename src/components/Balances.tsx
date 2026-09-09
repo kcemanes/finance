@@ -223,7 +223,9 @@ function Balances({ userId }: { userId: string }) {
           <p className="section-note">
             Every account that had a value at this month end. A figure marked{' '}
             <em>carried</em> is the last reading taken of that account rather
-            than one taken for this month.
+            than one taken for this month. One marked <em>not in total</em>{' '}
+            is left out of every subtotal and the net worth figure above — see
+            Manage accounts.
           </p>
           <div className="overflow-x-auto">
             <table className="table">
@@ -235,7 +237,8 @@ function Balances({ userId }: { userId: string }) {
                   if (group.length === 0) return null
 
                   const subtotal = group.reduce(
-                    (sum, holding) => sum + holding.amount,
+                    (sum, holding) =>
+                      holding.excluded ? sum : sum + holding.amount,
                     0,
                   )
 
@@ -260,10 +263,18 @@ function Balances({ userId }: { userId: string }) {
                               {holding.carried && (
                                 <span className="text-muted"> · carried</span>
                               )}
+                              {holding.excluded && (
+                                <span className="text-muted">
+                                  {' '}
+                                  · Not in total
+                                </span>
+                              )}
                             </td>
                             <td
                               className={`num ${
-                                holding.carried ? 'text-muted' : ''
+                                holding.carried || holding.excluded
+                                  ? 'text-muted'
+                                  : ''
                               }`}
                             >
                               {formatMoney(holding.amount)}

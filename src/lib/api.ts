@@ -116,7 +116,13 @@ export function listBalances(userId: string): Promise<Balance[]> {
  */
 export async function saveAccount(
   userId: string,
-  input: { id?: string; name: string; kind: AccountKind; is_active: boolean },
+  input: {
+    id?: string
+    name: string
+    kind: AccountKind
+    is_active: boolean
+    include_in_net_worth: boolean
+  },
 ): Promise<Account> {
   const account = await store.setAccount(userId, input)
   void requestSync(userId)

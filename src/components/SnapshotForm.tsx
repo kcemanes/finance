@@ -207,7 +207,12 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
     setBusy(true)
     setError(null)
     try {
-      await saveAccount(userId, { name, kind: newKind, is_active: true })
+      await saveAccount(userId, {
+        name,
+        kind: newKind,
+        is_active: true,
+        include_in_net_worth: true,
+      })
       setNewName('')
       setAdding(false)
     } catch (err) {
@@ -285,6 +290,9 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
                           {row.account.name}
                           {!row.account.is_active && (
                             <span className="text-muted"> · archived</span>
+                          )}
+                          {!row.account.include_in_net_worth && (
+                            <span className="text-muted"> · Not in total</span>
                           )}
                           {/* Where the figure in the box came from, so a
                               carried number is never mistaken for a reading. */}

@@ -233,6 +233,19 @@ function niceStep(rough: number) {
   return (LADDER.find((s) => rough <= s * magnitude) ?? 10) * magnitude
 }
 
+// Denser than LADDER: the widest gaps there (2.5→5, 5→10) can nearly double
+// the step for a small change in `rough`, which swallows a caller's request
+// for more divisions before it ever reaches axisBounds's tick count. Used
+// only by axisBounds, where the number of gridlines is the point; axisMax's
+// bars care more about clean round numbers than density.
+const DENSE_LADDER = [1, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 10]
+
+/** Like niceStep, but from the denser ladder. */
+function niceStepDense(rough: number) {
+  const magnitude = 10 ** Math.floor(Math.log10(rough))
+  return (DENSE_LADDER.find((s) => rough <= s * magnitude) ?? 10) * magnitude
+}
+
 /**
  * The top of an axis that clears `peak` and splits into `divisions` round
  * ticks.
@@ -267,7 +280,7 @@ export function axisBounds(min: number, max: number, divisions: number) {
   // Only reachable when every value is exactly zero, since one end is clamped.
   if (low === high) return { low: 0, high: 0, ticks: [0] }
 
-  const step = niceStep((high - low) / divisions)
+  const step = niceStepDense((high - low) / divisions)
   const from = Math.floor(low / step) * step
   const to = Math.ceil(high / step) * step
 
@@ -327,6 +340,12 @@ export type Holding = {
    * and not a gap.
    */
   carried: boolean
+  /**
+   * True when the account is marked to be left out of the net worth total —
+   * see `Account.include_in_net_worth`. Still shown on the balance sheet, just
+   * not folded into `assets`, `debt` or `net`.
+   */
+  excluded: boolean
 }
 
 /** The whole balance sheet at one month end. */
@@ -374,6 +393,9 @@ export function netWorthSeries(
   const isActive = new Map(
     accounts.map((account) => [account.id, account.is_active]),
   )
+  const includeInTotal = new Map(
+    accounts.map((account) => [account.id, account.include_in_net_worth]),
+  )
 
   // Readings grouped by the month they describe, and the last month each
   // account was read in.
@@ -418,9 +440,12 @@ export function netWorthSeries(
       // Past the month an archived account was last a real place money sat.
       if (!isActive.get(id) && key > (lastRead.get(id) ?? key)) continue
 
-      holdings.push({ account_id: id, amount, carried: !fresh.has(id) })
-      if (DEBT_KINDS.has(kind)) debt += amount
-      else assets += amount
+      const excluded = includeInTotal.get(id) === false
+      holdings.push({ account_id: id, amount, carried: !fresh.has(id), excluded })
+      if (!excluded) {
+        if (DEBT_KINDS.has(kind)) debt += amount
+        else assets += amount
+      }
     }
 
     const [year, month] = key.split('-').map(Number)

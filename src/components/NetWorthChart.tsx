@@ -21,11 +21,16 @@ const PLOT_H = 170
 const AXIS_H = 26
 const HEIGHT = PAD_TOP + PLOT_H + AXIS_H
 
-// Five rather than the four the other charts use. The step is what gets
-// rounded (see axisMax), so a coarser division on figures this large snaps to
-// the next power of ten and leaves the line sitting in the bottom two thirds
-// of the plot with an empty band above it.
-const DIVISIONS = 5
+// More than the four the other charts use. The step is what gets rounded
+// (see axisMax), so a coarser division on figures this large snaps to the
+// next power of ten and leaves the line sitting in the bottom two thirds of
+// the plot with an empty band above it; a finer division keeps the rounded
+// step closer to the actual range.
+const DIVISIONS = 8
+
+// The axis clears the highest point by this much before rounding to a nice
+// top, e.g. a ~₱4M peak lands under a ₱6-7M top instead of a snug ₱5M one.
+const HEADROOM = 1.5
 
 const LABEL_W = 30
 const LABEL_W_YEAR = 42
@@ -67,9 +72,12 @@ function NetWorthChart({ points, label }: Props) {
     ? [...nets, ...points.map((point) => point.debt)]
     : nets
 
+  // Padded above the highest point on record, so that point lands partway up
+  // the plot rather than on the top gridline — headroom to read the line
+  // against, not just the tightest box it fits in.
   const { low, high, ticks } = axisBounds(
     Math.min(...drawn),
-    Math.max(...drawn),
+    Math.max(...drawn) * HEADROOM,
     DIVISIONS,
   )
   const span = high - low
@@ -154,7 +162,7 @@ function NetWorthChart({ points, label }: Props) {
             />
           )}
 
-          {area && <path d={area} className="fill-income-soft" />}
+          {area && <path d={area} className="fill-income-soft opacity-60" />}
 
           {hasDebt && (
             <path
