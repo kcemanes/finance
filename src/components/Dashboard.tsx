@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Balances from './Balances'
 import Charts from './Charts'
+import Collapsible from './Collapsible'
 import EntryForm from './EntryForm'
 import InstallButton from './InstallButton'
 import Ledger from './Ledger'
@@ -65,6 +66,9 @@ function Dashboard({ account }: { account: Account }) {
     () => sourceTargets(incomes, sources),
     [incomes, sources],
   )
+
+  // The ledger holds both directions, so its count is both lists.
+  const entryCount = expenses.length + incomes.length
 
   function shiftMonth(delta: number) {
     const shifted = new Date(year, month + delta, 1)
@@ -167,27 +171,32 @@ function Dashboard({ account }: { account: Account }) {
             }
           />
           {/* Same shape, opposite tests: spending wants to stay under its
-              target, income wants to clear it. Headings appear only when both
-              lists are on screen and need telling apart. */}
-          <TargetSummary
-            rows={spendRows}
-            miss="over"
-            tone="expense"
-            heading={earnRows.length > 0 ? 'Spending' : undefined}
-          />
-          <TargetSummary
-            rows={earnRows}
-            miss="under"
-            tone="income"
-            heading="Income"
-          />
-          <Ledger
-            userId={account.id}
-            expenses={expenses}
-            incomes={incomes}
-            categories={categories}
-            sources={sources}
-          />
+              target, income wants to clear it. Each block is shut on arrival,
+              so what the month cost and the form for adding to it are the
+              whole first screen; the hints carry the headline number so a shut
+              block still says something. */}
+          {spendRows.length > 0 && (
+            <Collapsible title="Spending" hint={formatMoney(total)}>
+              <TargetSummary rows={spendRows} miss="over" tone="expense" />
+            </Collapsible>
+          )}
+          {earnRows.length > 0 && (
+            <Collapsible title="Income" hint={formatMoney(earned)}>
+              <TargetSummary rows={earnRows} miss="under" tone="income" />
+            </Collapsible>
+          )}
+          <Collapsible
+            title="Expenses"
+            hint={`${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`}
+          >
+            <Ledger
+              userId={account.id}
+              expenses={expenses}
+              incomes={incomes}
+              categories={categories}
+              sources={sources}
+            />
+          </Collapsible>
         </>
       )}
     </>

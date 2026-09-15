@@ -15,8 +15,6 @@ type Props = {
   miss: 'over' | 'under'
   /** Which direction of money these are, which is all that changes the hue. */
   tone: 'expense' | 'income'
-  /** Rendered only when both directions are on screen and need telling apart. */
-  heading?: string
 }
 
 const TONES = {
@@ -24,7 +22,7 @@ const TONES = {
   income: { bar: 'bg-income', track: 'bg-income-soft' },
 }
 
-function TargetSummary({ rows, miss, tone, heading }: Props) {
+function TargetSummary({ rows, miss, tone }: Props) {
   const { formatMoney } = useCurrency()
 
   if (rows.length === 0) return null
@@ -38,10 +36,7 @@ function TargetSummary({ rows, miss, tone, heading }: Props) {
   )
 
   return (
-    <section className="my-7">
-      {heading && (
-        <h3 className="eyebrow mb-3">{heading}</h3>
-      )}
+    <section className="mt-4">
       <ul className="flex list-none flex-col gap-3.5 p-0">
         {rows.map(({ id, name, actual, target }) => {
           const missed =
