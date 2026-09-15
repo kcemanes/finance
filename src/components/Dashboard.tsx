@@ -7,6 +7,8 @@ import Ledger from './Ledger'
 import SyncStatus from './SyncStatus'
 import TargetSummary from './TargetSummary'
 import ThemeToggle from './ThemeToggle'
+import ViewTabs from './ViewTabs'
+import type { TabId } from './ViewTabs'
 import { categoryTargets, sourceTargets } from '../lib/analytics'
 import { signOut } from '../lib/auth'
 import type { Account } from '../lib/auth'
@@ -22,16 +24,6 @@ const now = new Date()
 // Round stepper; colours and hover come from .btn-quiet.
 const STEP =
   'btn-quiet h-9 w-9 rounded-full p-0 text-xl leading-none disabled:opacity-35'
-
-// Flows first, then the stock they move: the month you are working in, the
-// trend across several of them, and the balance sheet all of it adds up to.
-const TABS = [
-  { id: 'month', label: 'Month' },
-  { id: 'charts', label: 'Trends' },
-  { id: 'worth', label: 'Net Worth' },
-] as const
-
-type TabId = (typeof TABS)[number]['id']
 
 function Dashboard({ account }: { account: Account }) {
   const { currency, setCurrency, formatMoney } = useCurrency()
@@ -202,7 +194,7 @@ function Dashboard({ account }: { account: Account }) {
   )
 
   return (
-    <div className="mx-auto w-full max-w-[860px] flex-1 px-5 pt-6 pb-16 max-sm:px-4">
+    <div className="mx-auto w-full max-w-[860px] flex-1 px-5 pt-6 pb-16 max-sm:px-4 max-sm:pb-[var(--tabbar-pad)]">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4 max-sm:gap-2">
         <h1 className="text-2xl font-medium tracking-[-0.4px] text-ink max-sm:text-xl">
           Finance
@@ -212,6 +204,8 @@ function Dashboard({ account }: { account: Account }) {
               wrapping row is a word wider than the screen. */}
           <span className="min-w-0 truncate text-muted">{account.email}</span>
           <SyncStatus />
+          <ThemeToggle />
+          <InstallButton />
           <label htmlFor="currency" className="sr-only">
             Currency
           </label>
@@ -227,8 +221,6 @@ function Dashboard({ account }: { account: Account }) {
               </option>
             ))}
           </select>
-          <InstallButton />
-          <ThemeToggle />
           <button
             type="button"
             className="btn-quiet"
@@ -239,20 +231,7 @@ function Dashboard({ account }: { account: Account }) {
         </div>
       </header>
 
-      <div className="mt-5 flex flex-wrap justify-center gap-2">
-        {TABS.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            className="btn-toggle"
-            aria-pressed={tab === id}
-            aria-controls="view"
-            onClick={() => setTab(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      <ViewTabs tab={tab} onSelect={setTab} />
 
       {sync.rejected.length > 0 && (
         <div className="msg msg-notice my-4" role="alert">
@@ -275,8 +254,13 @@ function Dashboard({ account }: { account: Account }) {
         </div>
       )}
 
+      {/* The fade only runs on mount, so the key is what replays it on a tab
+          change. Stepping through months keeps the same key, and so stays
+          still. */}
       <section
         id="view"
+        key={tab}
+        className="view-enter"
         aria-label={
           tab === 'charts' ? 'Trends' : tab === 'worth' ? 'Net worth' : 'This month'
         }

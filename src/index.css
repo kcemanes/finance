@@ -120,6 +120,20 @@
     @media (width <= 1024px) {
       font-size: 16px;
     }
+
+    /* The bottom tab bar's height, and the room the page has to leave under
+       its last row so nothing ends up behind it. The bar only exists below
+       `sm` (see .tabbar), but the two are declared together here because the
+       bar reads the first and the page container reads the second — kept in
+       one place, they cannot drift apart and leave a strip of the ledger
+       unreachable.
+
+       env(safe-area-inset-bottom) is the strip the iPhone home indicator sits
+       in. It only reports a real value because index.html asks for
+       viewport-fit=cover; without that it is 0 everywhere, and the labels sit
+       under the indicator. */
+    --tabbar-h: 3.5rem;
+    --tabbar-pad: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 1rem);
   }
 
   body {
@@ -315,6 +329,88 @@
     @apply hover:border-accent-strong hover:bg-accent-strong;
   }
 
+  /* The view switcher, in its two shapes. Above `sm` it is a centred row of
+     .btn-toggle pills under the header. Below `sm` the same buttons become a
+     bar across the bottom edge, which is where a phone expects to find
+     navigation and where a thumb can reach it.
+
+     The mobile rules undo the pill rather than replacing the class, so the
+     desktop shape stays the one definition of what a selected view looks
+     like. `.tabbar-item` follows `.btn-toggle` in the same layer, so equal
+     specificity resolves in its favour; the pressed rule has to be spelled
+     out to match the pressed pill's.
+
+     The 40rem here is Tailwind's `sm`. A media query resolves rem against the
+     initial 16px root, not the 18px set above, so this and `max-sm:` in the
+     markup break at the same 640px. */
+  .tabbar {
+    @apply mt-5 flex flex-wrap justify-center gap-2;
+  }
+
+  @media (width < 40rem) {
+    .tabbar {
+      position: fixed;
+      inset-inline: 0;
+      bottom: 0;
+      z-index: 40;
+      margin: 0;
+      gap: 0;
+      height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+      padding-bottom: env(safe-area-inset-bottom);
+      border-top: 1px solid var(--color-line);
+      background: var(--color-surface);
+    }
+
+    .tabbar-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.1rem;
+      border: 0;
+      border-radius: 0;
+      padding: 0;
+      background: transparent;
+      font-size: 0.7rem;
+      line-height: 1.1;
+      color: var(--color-muted);
+    }
+
+    /* The selected view is the coloured one. Filling the whole cell the way
+       the pill does would put a solid block across a third of the bar, and
+       the bar is a frame for the page rather than a control in it. */
+    .tabbar-item[aria-pressed='true'] {
+      border: 0;
+      background: transparent;
+      color: var(--color-accent-strong);
+    }
+
+    /* A tap leaves :hover stuck on the last thing touched, so on the one
+       surface that is only ever touched, there is no hover. */
+    .tabbar-item:hover,
+    .tabbar-item[aria-pressed='true']:hover {
+      border: 0;
+      background: transparent;
+    }
+  }
+
+  /* The update banner is pinned to the same bottom edge. Where the tab bar
+     exists it stacks above it instead of over it: the banner has no dismiss
+     and stays until the new build is taken, so covering the navigation would
+     mean covering it for the rest of the session. The :has() is what keeps
+     the banner from floating off the bottom of the sign-in screen, which has
+     no bar under it. */
+  .update-banner {
+    bottom: 0;
+  }
+
+  @media (width < 40rem) {
+    body:has(.tabbar) .update-banner {
+      bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+    }
+  }
+
   /* The money-in side of the entry form: the Income mode switch, and the
      submit button while it says Add income. Emerald is the accent, so it is
      also the expense colour by default — these two controls would otherwise
@@ -354,5 +450,29 @@
 
   .msg-notice {
     @apply bg-notice-soft text-notice-strong;
+  }
+
+  /* The view swap is instantaneous and the three tabs have very different
+     heights, so the change reads as a jolt rather than a navigation. A short
+     opacity ramp gives the eye something to follow. `backwards` fill holds it
+     at zero for the frame between mount and the animation's first tick.
+
+     Opacity only: a slide would fight the page's own scroll position, and the
+     rows are usually already on screen in the first frame (see lib/cache.ts) —
+     the fade marks that the view changed, it does not hide a load. */
+  .view-enter {
+    animation: view-enter 160ms ease-out backwards;
+  }
+
+  @keyframes view-enter {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .view-enter {
+      animation: none;
+    }
   }
 }
