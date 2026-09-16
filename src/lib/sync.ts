@@ -19,7 +19,6 @@ import {
   GROUPS,
   discardBalance,
   dropOps,
-  loadCategories,
   readOutbox,
   remapGroup,
   replaceFromRemote,
@@ -337,7 +336,42 @@ async function selectAll(table: string, columns: string): Promise<Record<string,
   }
 }
 
+/**
+ * Throws unless supabase-js is holding a usable session for `userId`.
+ *
+ * Every RLS policy in the schema is `to authenticated`. A request that goes
+ * out with the anon role therefore matches no policy at all, and PostgREST
+ * answers that with an empty array and a 200 rather than a 401 — which is
+ * indistinguishable, in `selectAll` below, from an account that genuinely has
+ * no rows. The caller believes an empty pull: it replaces this device's copy
+ * with nothing and re-seeds the starter categories. So the cost of a token
+ * that quietly expired under a tab left open is the local database, and six
+ * categories the account had already moved past.
+ *
+ * `getSession` refreshes an expired token on the way past and resolves to a
+ * null session when that refresh cannot be made, so a dead connection lands
+ * here — where the pull is abandoned and the local store is left alone —
+ * instead of on an empty read that looks authoritative.
+ */
+async function requireSession(userId: string): Promise<void> {
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw new Error(error.message)
+
+  const session = data.session
+  if (!session?.access_token) {
+    throw new Error('Not signed in: skipping the pull rather than reading as anon')
+  }
+
+  // A session for another account would read that account's rows and then
+  // store every one of them under this user id.
+  if (session.user.id !== userId) {
+    throw new Error('Signed in as a different account: skipping the pull')
+  }
+}
+
 async function pull(userId: string): Promise<RemoteRows> {
+  await requireSession(userId)
+
   const [categories, expenses, sources, incomes, accounts, balances] =
     await Promise.all([
       selectAll('expense_categories', 'id, name, monthly_budget'),
@@ -414,22 +448,33 @@ async function runSync(userId: string) {
   setState({ status: 'syncing' })
 
   try {
+    // Read before the pull, because the pull is what sets it. A device that
+    // has completed a pass for this account before is not looking at a new
+    // account, whatever this pass happens to return.
+    const firstPass = (await readLastSynced(userId)) === null
+
     let { blocked, rejected } = await push(userId)
     let remote = await pull(userId)
     await replaceFromRemote(userId, remote)
 
     // A brand-new account: nothing local, nothing remote. Seed the starters
     // and push them straight back, so the expense form has something to
-    // select. Gated on a completed pull, so an offline start never re-seeds.
-    if (!blocked && remote.categories.length === 0) {
-      if ((await loadCategories(userId)).length === 0) {
-        await seedStarterCategories(userId)
-        const second = await push(userId)
-        blocked = second.blocked
-        rejected = [...rejected, ...second.rejected]
-        remote = await pull(userId)
-        await replaceFromRemote(userId, remote)
-      }
+    // select.
+    //
+    // `firstPass` is the guard that matters, and it is not belt and braces.
+    // An empty pull used to be trusted on its own, checking that the local
+    // store was empty too — but `replaceFromRemote` on the line above has
+    // just emptied it, so that check could never fail and an account whose
+    // categories had simply not come down got the starters written over the
+    // top of it. Seeding is a once-per-device-per-account event, so ask the
+    // one question that is actually about that.
+    if (!blocked && firstPass && remote.categories.length === 0) {
+      await seedStarterCategories(userId)
+      const second = await push(userId)
+      blocked = second.blocked
+      rejected = [...rejected, ...second.rejected]
+      remote = await pull(userId)
+      await replaceFromRemote(userId, remote)
     }
 
     const now = new Date().toISOString()

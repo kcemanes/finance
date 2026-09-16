@@ -145,7 +145,7 @@ const STARTER_CATEGORIES = [
   'Rent',
   'Transport',
   'Utilities',
-  'Dining out',
+  'Dining Out',
   'Other',
 ]
 
@@ -569,9 +569,18 @@ export async function discardBalance(id: string): Promise<void> {
 }
 
 /**
- * Seeds the starter categories for an account that has none. Called only once
- * a pull has confirmed the server side is genuinely empty — seeding on any
- * empty read would re-seed on every cold offline start.
+ * Seeds the starter categories for an account that has none.
+ *
+ * Called only on a device's first completed pass for an account, and only
+ * when that pass pulled no categories down. Both halves are load-bearing: an
+ * empty read alone is also what a cold offline start and an unauthenticated
+ * pull look like, and seeding on one of those writes six categories over an
+ * account that already had its own. See the gate in ./sync's `runSync`.
+ *
+ * Names here should match what the account would already call the same thing.
+ * `unique (user_id, name)` is case-sensitive, so a starter that differs only
+ * in case from an existing category is accepted by Postgres and then sits
+ * next to it in the picker, indistinguishable.
  */
 export async function seedStarterCategories(userId: string): Promise<void> {
   for (const name of STARTER_CATEGORIES) {
