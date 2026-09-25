@@ -46,6 +46,12 @@ jobs:
 
       - run: npm run build
 
+      # GitHub Pages has no SPA rewrites: a first visit straight to /login,
+      # /app or /reset-password (e.g. from an emailed link, before the service
+      # worker is installed) would otherwise get Pages' own 404. Serving the
+      # app shell as 404.html lets the client-side router take it from there.
+      - run: cp dist/index.html dist/404.html
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

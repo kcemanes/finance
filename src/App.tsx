@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import Dashboard from './components/Dashboard'
-import Login from './components/Login'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import Landing from './components/Landing'
+import RouteErrorBoundary from './components/RouteErrorBoundary'
 import UpdatePrompt from './components/UpdatePrompt'
-import { useSession } from './hooks/useSession'
+import { navigate, usePathname } from './lib/router'
 import {
   CurrencyContext,
   formatMoneyCompactIn,
@@ -21,8 +21,14 @@ import {
 } from './lib/theme'
 import type { ThemeChoice } from './lib/theme'
 
+// Everything behind /login and /app — Supabase, the session hook, the
+// dashboard — in one chunk that a visit to / never has to download.
+const AppShell = lazy(() => import('./components/AppShell'))
+
+const KNOWN_PATHS = new Set(['/', '/login', '/app', '/reset-password'])
+
 function App() {
-  const { account, loading } = useSession()
+  const pathname = usePathname()
   const [currency, setCurrency] = useState(storedCurrency)
   const [theme, setTheme] = useState(storedTheme)
   const [system, setSystem] = useState(systemTheme)
@@ -67,17 +73,31 @@ function App() {
     }
   }, [theme, resolved])
 
+  // An unknown path (or one left over from before this routing existed)
+  // lands on the public landing page rather than a dead end.
+  useEffect(() => {
+    if (!KNOWN_PATHS.has(pathname)) navigate('/', { replace: true })
+  }, [pathname])
+
   return (
     <ThemeContext.Provider value={themeValue}>
       <CurrencyContext.Provider value={currencyValue}>
-        {loading ? (
-          <div className="flex flex-1 items-center justify-center p-8 text-center">
-            Loading…
-          </div>
-        ) : account ? (
-          <Dashboard account={account} />
+        {pathname === '/login' ||
+        pathname === '/app' ||
+        pathname === '/reset-password' ? (
+          <RouteErrorBoundary>
+            <Suspense
+              fallback={
+                <div className="flex flex-1 items-center justify-center p-8 text-center">
+                  Loading…
+                </div>
+              }
+            >
+              <AppShell pathname={pathname} />
+            </Suspense>
+          </RouteErrorBoundary>
         ) : (
-          <Login />
+          <Landing />
         )}
         <UpdatePrompt />
       </CurrencyContext.Provider>

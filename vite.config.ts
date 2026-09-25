@@ -21,7 +21,10 @@ export default defineConfig({
         short_name: 'Finance',
         description:
           'Log expenses by category, set a monthly budget, and see where the month went — online or off.',
-        start_url: '/',
+        // Installed launches skip the marketing page and go straight into the
+        // app; `id` stays '/' so this is not treated as a new app for anyone
+        // who already installed it.
+        start_url: '/app',
         scope: '/',
         display: 'standalone',
         // Matches --color-ground in the light palette, so the splash screen
@@ -51,6 +54,18 @@ export default defineConfig({
         // would only be a second, disagreeing copy.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: '/index.html',
+        // The landing page is public and marketing-facing, so it is excluded
+        // from the SPA fallback below and instead routed to NetworkOnly: a
+        // prospective customer should never see a stale build, and the page
+        // is not part of the offline-first guarantee /login and /app carry.
+        navigateFallbackDenylist: [/^\/$/],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, request }) =>
+              request.mode === 'navigate' && url.pathname === '/',
+            handler: 'NetworkOnly',
+          },
+        ],
         cleanupOutdatedCaches: true,
       },
     }),

@@ -16,45 +16,10 @@
 import { supabase } from './supabase'
 import { clearLocalData } from './store'
 import { resetSyncState } from './sync'
+import { forgetAccount } from './account-storage'
 
-export type Account = { id: string; email: string }
-
-const STORAGE_KEY = 'budget.account'
-
-export function storedAccount(): Account | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return null
-    const parsed: unknown = JSON.parse(raw)
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as Account).id === 'string'
-    ) {
-      return parsed as Account
-    }
-  } catch {
-    // Unreadable or not JSON: treat it as nobody, and let Supabase decide.
-  }
-  return null
-}
-
-export function storeAccount(account: Account) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(account))
-  } catch {
-    // Storage blocked. Sessions then last only as long as the tab, which is
-    // the same deal the rest of the app's settings get.
-  }
-}
-
-export function forgetAccount() {
-  try {
-    localStorage.removeItem(STORAGE_KEY)
-  } catch {
-    // Nothing to undo.
-  }
-}
+export type { Account } from './account-storage'
+export { storedAccount, storeAccount, forgetAccount } from './account-storage'
 
 /**
  * Set for the duration of a deliberate sign-out.
