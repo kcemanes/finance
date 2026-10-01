@@ -12,8 +12,6 @@ type Props = {
   balances: Balance[]
 }
 
-const now = new Date()
-
 // Round stepper; colours and hover come from .btn-quiet. The same control as
 // the month view's, so the two screens step through months identically.
 const STEP =
@@ -64,11 +62,12 @@ function parseAmount(text: string): number | null | undefined {
  */
 function SnapshotForm({ userId, accounts, balances }: Props) {
   const { formatMoney } = useCurrency()
-  // The month most likely to be getting written down is the one that has
-  // ended. Stepping forward to the current month is allowed for a reading
-  // taken on the last day of it.
-  const [year, setYear] = useState(new Date(now.getFullYear(), now.getMonth() - 1).getFullYear())
-  const [month, setMonth] = useState(new Date(now.getFullYear(), now.getMonth() - 1).getMonth())
+  // Always opens on the current month; earlier months are a step back. Read
+  // when the form mounts rather than when the module loads, so an app left
+  // open across a month boundary still opens on the right month.
+  const [now] = useState(() => new Date())
+  const [year, setYear] = useState(() => now.getFullYear())
+  const [month, setMonth] = useState(() => now.getMonth())
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -353,7 +352,9 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
             ? 'Saving…'
             : changed.length === 0
               ? 'Nothing changed'
-              : `Save ${changed.length} ${changed.length === 1 ? 'change' : 'changes'}`}
+              : // The month is named on the button itself, so the last thing
+                // read before saving is where the figures are going.
+                `Save ${changed.length} ${changed.length === 1 ? 'change' : 'changes'} to ${formatMonthAbbr(year, month)}`}
         </button>
         {!adding && (
           <button
