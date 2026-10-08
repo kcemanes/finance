@@ -316,6 +316,15 @@
     @apply enabled:hover:border-accent-mid enabled:hover:bg-accent-soft disabled:cursor-default;
   }
 
+  /* Google's branding guidelines fix the sign-in button's fill, stroke and
+     label colours per theme, so these are literal values rather than tokens
+     that would drift with the app's palette. */
+  .btn-google {
+    @apply flex cursor-pointer items-center justify-center gap-3 rounded-control border border-[#747775] bg-white font-medium text-[#1f1f1f];
+    @apply enabled:hover:bg-[#f2f2f2] disabled:cursor-default disabled:opacity-60;
+    @apply dark:border-[#8e918f] dark:bg-[#131314] dark:text-[#e3e3e3] dark:enabled:hover:bg-[#262628];
+  }
+
   /* One of a small set of choices, exactly one selected: the view switcher,
      the chart range presets. Selection is carried by aria-pressed, so the
      markup says which is on and the style follows rather than the reverse. */

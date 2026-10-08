@@ -6,7 +6,7 @@ Record what each of your accounts is worth at a month end and it tracks net
 worth too — then tells you how much of each month's change the ledger
 actually accounts for. Each account only ever sees its own data. Light/dark
 theme and the display currency are picked in the header and remembered per
-browser.
+browser. Sign in with email and password or with Google.
 
 It is an installable, offline-first app: it launches, reads and records
 entries with no connection, and syncs when one comes back. See
@@ -19,7 +19,7 @@ Live at **[finance.kcemanes.com](https://finance.kcemanes.com)**.
 - **React 19 + TypeScript**, built by **Vite**
 - **Tailwind CSS v4** (via `@tailwindcss/vite`, no config file — theme tokens
   live in [src/index.css](src/index.css))
-- **Supabase** for email/password auth and Postgres storage
+- **Supabase** for auth (email/password and Google OAuth) and Postgres storage
 - **IndexedDB** as the local source of truth, with a sync engine on top
 - **vite-plugin-pwa** (Workbox) for the manifest and service worker
 - **GitHub Pages** for hosting, deployed by GitHub Actions
@@ -37,7 +37,14 @@ Postgres in the background — see [Offline](#offline).
 
 | Path | Role |
 | --- | --- |
-| [src/App.tsx](src/App.tsx) | Session gate: loading → [Login](src/components/Login.tsx) → [Dashboard](src/components/Dashboard.tsx) |
+| [src/App.tsx](src/App.tsx) | Theme and currency context, and the route switch — see [Routes](#routes) |
+| [src/lib/router.ts](src/lib/router.ts) | Just enough client-side routing for a handful of static paths |
+| [src/components/AppShell.tsx](src/components/AppShell.tsx) | Everything behind `/login`, `/app` and `/reset-password`, lazy-loaded; guards which of the first two a session belongs on |
+| [src/components/Landing.tsx](src/components/Landing.tsx) | The public page at `/` — no Supabase, no IndexedDB |
+| [src/components/Login.tsx](src/components/Login.tsx) | Sign in, sign up, forgotten password, and Continue with Google |
+| [src/components/ResetPassword.tsx](src/components/ResetPassword.tsx) | Where the emailed reset link lands to set a new password |
+| [src/components/Link.tsx](src/components/Link.tsx) | An `<a>` that navigates in-page but still works as a real link |
+| [src/components/RouteErrorBoundary.tsx](src/components/RouteErrorBoundary.tsx) | A recoverable message if the app chunk fails to load |
 | [src/hooks/useSession.ts](src/hooks/useSession.ts) | The signed-in account, resolved so that being offline never looks like being signed out |
 | [src/hooks/useSyncState.ts](src/hooks/useSyncState.ts) | Subscribes the header to the sync engine's status and queue depth |
 | [src/hooks/useFinanceData.ts](src/hooks/useFinanceData.ts) | Categories and income sources, plus a date range of expenses and incomes, re-read whenever the store changes |
@@ -50,11 +57,15 @@ Postgres in the background — see [Offline](#offline).
 | [src/lib/store.ts](src/lib/store.ts) | Categories, expenses, income sources, incomes, accounts, balances, and the outbox |
 | [src/lib/sync.ts](src/lib/sync.ts) | The only module that talks to Supabase |
 | [src/lib/auth.ts](src/lib/auth.ts) | Who is signed in, in a form that survives being offline |
+| [src/lib/account-storage.ts](src/lib/account-storage.ts) | The remembered account in `localStorage`, readable without loading Supabase |
+| [src/lib/cache.ts](src/lib/cache.ts) | The last rows each read returned, so switching back to a tab draws in the first frame |
 | [src/lib/pwa.ts](src/lib/pwa.ts) | Service worker registration, update and install prompts |
 | [src/lib/format.ts](src/lib/format.ts) | Date and month range helpers |
 | [src/lib/analytics.ts](src/lib/analytics.ts) | The per-month, per-parent and actual-against-target aggregations behind the charts, plus both axis scales; below those, the net worth series and the reconciliation that joins it to the ledger |
 | [src/lib/theme.ts](src/lib/theme.ts) | Theme choice, storage, and the `data-theme` stamp |
 | [src/lib/currency.ts](src/lib/currency.ts) | The currency list, money formatting, and storage |
+| [src/components/ViewTabs.tsx](src/components/ViewTabs.tsx) | The Month / Trends / Net Worth switcher — pills on desktop, a bottom bar on phones |
+| [src/components/Collapsible.tsx](src/components/Collapsible.tsx) | A titled `<details>` block that starts closed, with a hint shown while shut |
 | [src/components/Balances.tsx](src/components/Balances.tsx) | The Net worth tab: the balance sheet, the trend, and what moved it |
 | [src/components/SnapshotForm.tsx](src/components/SnapshotForm.tsx) | Month-end entry — one prefilled field per account, writing only what changed |
 | [src/components/NetWorthChart.tsx](src/components/NetWorthChart.tsx) | Net worth over the months that were actually recorded |
@@ -66,15 +77,28 @@ Postgres in the background — see [Offline](#offline).
 | [src/components/InstallButton.tsx](src/components/InstallButton.tsx) | Hands back the install prompt, on the browsers that defer one |
 | [scripts/generate-icons.mjs](scripts/generate-icons.mjs) | Draws the install icons from the same geometry as the favicon |
 | [supabase/schema.sql](supabase/schema.sql) | Tables, indexes, and RLS policies |
+| [supabase/import-expenses.sql](supabase/import-expenses.sql) | One-off bulk import of a Date / Vendor / Category / Amount spreadsheet |
+| [supabase/cleanup-reseeded-categories.sql](supabase/cleanup-reseeded-categories.sql) | One-off repair for starter categories re-seeded over an existing account |
 
 A few details worth knowing:
 
-- The dashboard has two views. **Month** is scoped to one month at a time;
-  expenses and incomes are fetched for that month's inclusive date range and
-  the stepper can't move past the current month. **Charts** covers the last
-  3, 6 or 12 months ending with the current one, and deliberately ignores the
-  stepper — a trend that stops halfway through history because you were
-  browsing March is a trap rather than a feature.
+- The dashboard has three tabs: **Month**, **Trends** and **Net Worth**. On
+  a phone they become a bar pinned to the bottom edge, in thumb reach and
+  unable to scroll away; above `sm` they are a row of pills under the header.
+  Both shapes are one element with one list, so they cannot drift apart.
+- **Month** is scoped to one month at a time; expenses and incomes are
+  fetched for that month's inclusive date range and the stepper can't move
+  past the current month. Its Spending, Income and ledger blocks start
+  collapsed, so the first screen is what the month cost and the form for
+  adding to it; each shut block still shows its total or entry count.
+- **Trends** covers the last 3, 6 or 12 months ending with the current one,
+  and deliberately ignores the stepper — a trend that stops halfway through
+  history because you were browsing March is a trap rather than a feature.
+- A tab that is left is unmounted, so its data hooks seed their first state
+  from [cache.ts](src/lib/cache.ts) and re-read underneath it
+  (stale-while-revalidate). That is safe because every store mutation ends in
+  a change notification that triggers a re-read; sign-out clears the cache
+  along with the database.
 - The charts are hand-drawn SVG and CSS rather than a charting library: four
   figures still did not justify the dependency in a bundle that has to
   precache for offline use. Ranking stays one series in one hue, since what a
@@ -83,9 +107,15 @@ A few details worth knowing:
   hovering. The by-month pair and the net chart are where colour does carry
   identity — see [Charting two directions](#charting-two-directions).
 - A brand-new account has no categories, so a starter set (Groceries, Rent,
-  Transport, Utilities, Dining out, Other) is seeded — but only once a sync
-  has confirmed the server side is genuinely empty. Seeding on any empty
-  read would re-seed on every cold offline start. Income sources are
+  Transport, Utilities, Dining Out, Other) is seeded — but only on this
+  device's **first completed sync** for the account, and only when that pull
+  came back with no categories. An empty read on its own is also what a cold
+  offline start looks like, and what an unauthenticated pull looks like:
+  every RLS policy is `to authenticated`, so an anon request gets `[]` with a
+  200 rather than a 401. `pull()` therefore refuses to run without a live
+  session for the same user id, and the first-pass check is what actually
+  gates the seed. Starter names should match what an account would already
+  call the thing — `unique (user_id, name)` is case-sensitive. Income sources are
   deliberately **not** seeded: there is no equivalent of "Groceries" that is
   right for everyone, and skipping it means there is no second re-seed gate
   to keep in step with the first.
@@ -363,6 +393,51 @@ there is no data migration — and the same cost applies: a tab still holding
 version 2 open blocks the upgrade and drops itself to the in-memory fallback
 until it is reloaded.
 
+## Routes
+
+Five static paths, switched in [App.tsx](src/App.tsx) by a router small
+enough not to need a dependency ([router.ts](src/lib/router.ts)). Anything
+else is replaced with `/`.
+
+| Path | What renders |
+| --- | --- |
+| `/` | [Landing](src/components/Landing.tsx), the public page |
+| `/login` | [Login](src/components/Login.tsx), or a redirect to `/app` if signed in |
+| `/app` | [Dashboard](src/components/Dashboard.tsx), or a redirect to `/login` if not |
+| `/reset-password` | [ResetPassword](src/components/ResetPassword.tsx), exempt from the redirects |
+| `/privacy` | [Privacy](src/components/Privacy.tsx), the public privacy policy |
+
+`/login`, `/app` and `/reset-password` live in one lazily-loaded chunk,
+[AppShell](src/components/AppShell.tsx), so a visit to `/` never downloads
+Supabase, IndexedDB or the dashboard. The landing page decides between
+"Log In" and "Go to Dashboard" from
+[account-storage.ts](src/lib/account-storage.ts) alone, which was split out
+of `auth.ts` for exactly that reason. If the chunk fails to load — missing
+Supabase config, or offline before it was ever cached —
+[RouteErrorBoundary](src/components/RouteErrorBoundary.tsx) shows a reload
+button instead of a blank page.
+
+`/reset-password` is exempt from the "signed in means `/app`" rule because
+the emailed link signs the user in before the page renders; the redirect
+would whisk them away before they could set the new password.
+
+### Google sign-in
+
+"Continue with Google" calls `signInWithOAuth` and leaves the page for
+Google's consent screen. Supabase brings the browser back to `/login` with
+the session in the URL, picks it up on load, and AppShell moves the account
+on to `/app`. Like the other sign-in paths, it refuses up front when the
+browser is offline.
+
+The button follows Google's branding guidelines rather than the app's
+palette: the four-colour "G" is unaltered, and `.btn-google` in
+[index.css](src/index.css) uses Google's literal fill, stroke and label
+colours for each theme instead of tokens that would drift with the app.
+
+`/privacy` exists because Google's OAuth consent screen links to it and its
+reviewers check it, which is also why it must answer `200` rather than via
+the 404 fallback — see [Deploying](#deploying).
+
 ## Offline
 
 The app installs to a home screen and works with no connection at all,
@@ -518,6 +593,14 @@ both files, **so change them together**.
 The maskable icon insets the mark to 60%, because Android crops adaptive
 icons to a shape of its choosing and only guarantees the middle 80%.
 
+### The landing page is not offline
+
+The offline guarantee covers `/login` and `/app`, not `/`. The landing page
+is excluded from the service worker's navigation fallback and served
+`NetworkOnly`, so a prospective visitor never sees a stale build. An
+installed app launches straight into `/app` (`start_url`); the manifest `id`
+stays `/` so existing installs are not treated as a new app.
+
 ## Theme and currency
 
 Both are display-only settings held in React context by
@@ -562,7 +645,7 @@ in the same file is what a browser with nothing remembered gets.
 
 ## Setup
 
-Requires Node 22+.
+Requires Node 24+.
 
 ```bash
 npm install
@@ -576,6 +659,14 @@ npm install
 3. Under **Authentication > Providers**, keep Email enabled. Sign-up with
    email confirmation on means new accounts see a "check your inbox"
    notice before their first session.
+4. To offer Google sign-in, enable the **Google** provider with a client ID
+   and secret from a Google Cloud OAuth client. That client's authorised
+   redirect URI is the callback Supabase shows on the provider page, and its
+   consent screen should link to `https://<your domain>/privacy`.
+5. Under **Authentication > URL Configuration**, set the Site URL and add
+   `<origin>/login` and `<origin>/reset-password` to the redirect allow list
+   for each origin you use (production and `http://localhost:5173`). Google
+   sign-in returns to the first, the password reset email to the second.
 
 ### Environment
 
@@ -610,6 +701,12 @@ also exist in the repo under **Settings > Secrets and variables > Actions**
 (repository scope, not an environment). Either the Variables or the Secrets
 tab works. The workflow checks both are non-empty and fails with a clear
 error before building if not.
+
+GitHub Pages has no SPA rewrites, so the workflow copies the built
+`index.html` to `404.html` — a first visit straight to `/login` or an emailed
+`/reset-password` link then gets the app shell, and the client-side router
+takes over. It also copies it to `privacy.html`, because `/privacy` must
+answer `200` for Google's OAuth review rather than come through the 404.
 
 The service worker is built alongside the bundle and needs no extra step,
 but two things about it are worth knowing. Its scope is the site root, which
