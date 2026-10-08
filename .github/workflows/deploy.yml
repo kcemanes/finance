@@ -52,6 +52,11 @@ jobs:
       # app shell as 404.html lets the client-side router take it from there.
       - run: cp dist/index.html dist/404.html
 
+      # /privacy is linked from Google's OAuth consent screen and checked by
+      # its reviewers, so it must answer 200 rather than through the 404
+      # fallback. Pages serves privacy.html for an extensionless /privacy.
+      - run: cp dist/index.html dist/privacy.html
+
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3

@@ -94,6 +94,30 @@ function Login() {
     }
   }
 
+  async function signInWithGoogle() {
+    if (!navigator.onLine) {
+      setError("You're offline. Connect to the internet to sign in.")
+      return
+    }
+
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+
+    // Leaves the page for Google's consent screen. Supabase brings the browser
+    // back to /login with the session in the URL, picks it up on load, and
+    // AppShell then moves a signed-in account on to /app.
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/login` },
+    })
+
+    if (error) {
+      setError(error.message)
+      setBusy(false)
+    }
+  }
+
   function switchMode(next: Mode) {
     setMode(next)
     setError(null)
@@ -184,6 +208,24 @@ function Login() {
         >
           {busy ? 'Working…' : SUBMIT[mode]}
         </button>
+
+        {mode !== 'forgot' && (
+          <>
+            <div className="mt-3 flex items-center gap-3 text-sm text-muted">
+              <span className="h-px flex-1 bg-line" />
+              or
+              <span className="h-px flex-1 bg-line" />
+            </div>
+            <button
+              type="button"
+              className="btn-quiet mt-1 px-4 py-2.5 text-base"
+              disabled={busy}
+              onClick={signInWithGoogle}
+            >
+              Continue with Google
+            </button>
+          </>
+        )}
 
         <p className="mt-4 text-center text-sm">
           {mode === 'signin'

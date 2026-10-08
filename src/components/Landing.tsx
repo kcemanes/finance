@@ -77,9 +77,12 @@ function Landing() {
         ))}
       </section>
 
-      <footer className="mt-auto flex items-center justify-center px-4 py-6 text-sm text-muted">
+      <footer className="mt-auto flex flex-wrap items-center justify-center gap-x-6 gap-y-2 px-4 py-6 text-sm text-muted">
         <Link href="/login" className="btn-link">
           Already have an account? Log in
+        </Link>
+        <Link href="/privacy" className="btn-link">
+          Privacy policy
         </Link>
       </footer>
     </div>

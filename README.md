@@ -59,6 +59,7 @@ Postgres in the background — see [Offline](#offline).
 | [src/components/SnapshotForm.tsx](src/components/SnapshotForm.tsx) | Month-end entry — one prefilled field per account, writing only what changed |
 | [src/components/NetWorthChart.tsx](src/components/NetWorthChart.tsx) | Net worth over the months that were actually recorded |
 | [src/components/AccountsEditor.tsx](src/components/AccountsEditor.tsx) | Renaming, reclassifying and archiving accounts |
+| [src/components/Privacy.tsx](src/components/Privacy.tsx) | The public privacy policy at `/privacy`, linked from Google's OAuth consent screen |
 | [src/components/ThemeToggle.tsx](src/components/ThemeToggle.tsx) | The light/dark button, used by both Login and Dashboard |
 | [src/components/SyncStatus.tsx](src/components/SyncStatus.tsx) | The header pill: offline, syncing, or changes still queued |
 | [src/components/UpdatePrompt.tsx](src/components/UpdatePrompt.tsx) | Offers a downloaded update rather than reloading unasked |

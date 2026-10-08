@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import Landing from './components/Landing'
+import Privacy from './components/Privacy'
 import RouteErrorBoundary from './components/RouteErrorBoundary'
 import UpdatePrompt from './components/UpdatePrompt'
 import { navigate, usePathname } from './lib/router'
@@ -25,7 +26,13 @@ import type { ThemeChoice } from './lib/theme'
 // dashboard — in one chunk that a visit to / never has to download.
 const AppShell = lazy(() => import('./components/AppShell'))
 
-const KNOWN_PATHS = new Set(['/', '/login', '/app', '/reset-password'])
+const KNOWN_PATHS = new Set([
+  '/',
+  '/login',
+  '/app',
+  '/reset-password',
+  '/privacy',
+])
 
 function App() {
   const pathname = usePathname()
@@ -96,6 +103,8 @@ function App() {
               <AppShell pathname={pathname} />
             </Suspense>
           </RouteErrorBoundary>
+        ) : pathname === '/privacy' ? (
+          <Privacy />
         ) : (
           <Landing />
         )}

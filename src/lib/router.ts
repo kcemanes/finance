@@ -1,6 +1,6 @@
 /**
  * Just enough client-side routing for a handful of static paths (/, /login,
- * /app, /reset-password).
+ * /app, /reset-password, /privacy).
  * A dependency was not worth it for a switch this small — see App.tsx.
  *
  * `pushState`/`replaceState` do not fire `popstate`, so every navigation that
