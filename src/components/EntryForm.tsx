@@ -13,6 +13,12 @@ type Props = {
   userId: string
   categories: Category[]
   sources: IncomeSource[]
+  /**
+   * Which direction the form records. Held by the caller, because the rest of
+   * the Month view follows the same switch.
+   */
+  kind: Kind
+  onKindChange: (kind: Kind) => void
   /** These let the picker show a category or source the moment it is created. */
   onCategoryAdded: (category: Category) => void
   onSourceAdded: (source: IncomeSource) => void
@@ -29,7 +35,7 @@ const KINDS = [
   { id: 'income', label: 'Income' },
 ] as const
 
-type Kind = (typeof KINDS)[number]['id']
+export type Kind = (typeof KINDS)[number]['id']
 
 /**
  * One form for both directions of money.
@@ -43,10 +49,11 @@ function EntryForm({
   userId,
   categories,
   sources,
+  kind,
+  onKindChange,
   onCategoryAdded,
   onSourceAdded,
 }: Props) {
-  const [kind, setKind] = useState<Kind>('expense')
   const [on, setOn] = useState(today())
   // One remembered pick per direction, so switching across and back does not
   // discard the category you were entering against.
@@ -159,7 +166,7 @@ function EntryForm({
             className={id === 'income' ? 'btn-toggle is-income' : 'btn-toggle'}
             aria-pressed={kind === id}
             onClick={() => {
-              setKind(id)
+              onKindChange(id)
               // A failure message about the other direction is stale now.
               setError(null)
             }}

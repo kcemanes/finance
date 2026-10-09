@@ -3,9 +3,12 @@ import { deleteExpense, deleteIncome } from '../lib/api'
 import { useCurrency } from '../lib/currency'
 import { formatDay } from '../lib/format'
 import type { Category, Expense, Income, IncomeSource } from '../types'
+import type { Kind } from './EntryForm'
 
 type Props = {
   userId: string
+  /** Which direction to list; the other list is ignored. */
+  kind: Kind
   expenses: Expense[]
   incomes: Income[]
   categories: Category[]
@@ -24,41 +27,44 @@ type Entry = {
 }
 
 /**
- * Money in and money out in one table, because "where did the month go" is a
- * question about both halves at once.
+ * One direction of money for the month, newest first — whichever the entry
+ * form is switched to, so what you are adding to is what you are looking at.
  *
- * Direction is carried by the sign in front of the amount, not by its colour.
- * A `+` is text and survives being read aloud, printed in greyscale, or seen
- * by someone who cannot separate the two hues; the colour only confirms it.
+ * Direction is still carried by the sign in front of the amount, not by its
+ * colour. A `+` is text and survives being read aloud, printed in greyscale,
+ * or seen by someone who cannot separate the two hues; the colour only
+ * confirms it.
  */
-function Ledger({ userId, expenses, incomes, categories, sources }: Props) {
+function Ledger({ userId, kind, expenses, incomes, categories, sources }: Props) {
   const { formatMoney } = useCurrency()
   const [removing, setRemoving] = useState<string | null>(null)
 
+  const income = kind === 'income'
   const categoryNames = new Map(categories.map((c) => [c.id, c.name]))
   const sourceNames = new Map(sources.map((s) => [s.id, s.name]))
 
-  const entries: Entry[] = [
-    ...expenses.map((expense) => ({
-      id: expense.id,
-      income: false,
-      on: expense.spent_on,
-      // A category deleted on another device can still have expenses here.
-      group: categoryNames.get(expense.category_id) ?? 'Uncategorised',
-      note: expense.note,
-      amount: expense.amount,
-      created_at: expense.created_at,
-    })),
-    ...incomes.map((entry) => ({
-      id: entry.id,
-      income: true,
-      on: entry.received_on,
-      group: sourceNames.get(entry.source_id) ?? 'Unattributed',
-      note: entry.note,
-      amount: entry.amount,
-      created_at: entry.created_at,
-    })),
-  ].sort(
+  const entries: Entry[] = (
+    income
+      ? incomes.map((entry) => ({
+          id: entry.id,
+          income: true,
+          on: entry.received_on,
+          group: sourceNames.get(entry.source_id) ?? 'Unattributed',
+          note: entry.note,
+          amount: entry.amount,
+          created_at: entry.created_at,
+        }))
+      : expenses.map((expense) => ({
+          id: expense.id,
+          income: false,
+          on: expense.spent_on,
+          // A category deleted on another device can still have expenses here.
+          group: categoryNames.get(expense.category_id) ?? 'Uncategorised',
+          note: expense.note,
+          amount: expense.amount,
+          created_at: expense.created_at,
+        }))
+  ).sort(
     (a, b) =>
       b.on.localeCompare(a.on) || b.created_at.localeCompare(a.created_at),
   )
@@ -76,7 +82,7 @@ function Ledger({ userId, expenses, incomes, categories, sources }: Props) {
   if (entries.length === 0) {
     return (
       <p className="my-8 text-center text-muted">
-        Nothing recorded this month yet.
+        {income ? 'No income' : 'No expenses'} recorded this month yet.
       </p>
     )
   }
@@ -87,7 +93,7 @@ function Ledger({ userId, expenses, incomes, categories, sources }: Props) {
         <thead>
           <tr>
             <th scope="col">Date</th>
-            <th scope="col">Category / source</th>
+            <th scope="col">{income ? 'Source' : 'Category'}</th>
             <th scope="col">Note</th>
             <th scope="col" className="num">
               Amount

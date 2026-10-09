@@ -3,6 +3,7 @@ import Balances from './Balances'
 import Charts from './Charts'
 import Collapsible from './Collapsible'
 import EntryForm from './EntryForm'
+import type { Kind } from './EntryForm'
 import InstallButton from './InstallButton'
 import Ledger from './Ledger'
 import SyncStatus from './SyncStatus'
@@ -29,6 +30,9 @@ const STEP =
 function Dashboard({ account }: { account: Account }) {
   const { currency, setCurrency, formatMoney } = useCurrency()
   const [tab, setTab] = useState<TabId>('month')
+  // The entry form's Expense / Income switch. Held here because the blocks
+  // under the form follow it too.
+  const [kind, setKind] = useState<Kind>('expense')
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const sync = useSyncState()
@@ -67,8 +71,8 @@ function Dashboard({ account }: { account: Account }) {
     [incomes, sources],
   )
 
-  // The ledger holds both directions, so its count is both lists.
-  const entryCount = expenses.length + incomes.length
+  const income = kind === 'income'
+  const entryCount = income ? incomes.length : expenses.length
 
   function shiftMonth(delta: number) {
     const shifted = new Date(year, month + delta, 1)
@@ -155,6 +159,8 @@ function Dashboard({ account }: { account: Account }) {
             userId={account.id}
             categories={categories}
             sources={sources}
+            kind={kind}
+            onKindChange={setKind}
             onCategoryAdded={(category) =>
               setCategories((current) =>
                 [...current, category].sort((a, b) =>
@@ -170,27 +176,34 @@ function Dashboard({ account }: { account: Account }) {
               )
             }
           />
-          {/* Same shape, opposite tests: spending wants to stay under its
-              target, income wants to clear it. Each block is shut on arrival,
-              so what the month cost and the form for adding to it are the
-              whole first screen; the hints carry the headline number so a shut
-              block still says something. */}
-          {spendRows.length > 0 && (
-            <Collapsible title="Spending" hint={formatMoney(total)}>
-              <TargetSummary rows={spendRows} miss="over" tone="expense" />
-            </Collapsible>
-          )}
-          {earnRows.length > 0 && (
-            <Collapsible title="Income" hint={formatMoney(earned)}>
-              <TargetSummary rows={earnRows} miss="under" tone="income" />
-            </Collapsible>
-          )}
+          {/* The blocks under the form follow its switch, so what you are
+              adding to is what you are looking at. Same shape, opposite
+              tests: spending wants to stay under its target, income wants to
+              clear it. Each block is shut on arrival, so what the month cost
+              and the form for adding to it are the whole first screen; the
+              hints carry the headline number so a shut block still says
+              something. */}
+          {income
+            ? earnRows.length > 0 && (
+                <Collapsible title="Income" hint={formatMoney(earned)}>
+                  <TargetSummary rows={earnRows} miss="under" tone="income" />
+                </Collapsible>
+              )
+            : spendRows.length > 0 && (
+                <Collapsible title="Spending" hint={formatMoney(total)}>
+                  <TargetSummary rows={spendRows} miss="over" tone="expense" />
+                </Collapsible>
+              )}
+          {/* Deliberately not keyed by direction: an open ledger stays open
+              across the switch, so the table you were looking at is replaced
+              by the other one rather than folding away. */}
           <Collapsible
-            title="Expenses"
+            title={income ? 'Income entries' : 'Expenses'}
             hint={`${entryCount} ${entryCount === 1 ? 'entry' : 'entries'}`}
           >
             <Ledger
               userId={account.id}
+              kind={kind}
               expenses={expenses}
               incomes={incomes}
               categories={categories}
