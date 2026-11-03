@@ -6,7 +6,11 @@ import {
   createIncome,
   createIncomeSource,
 } from '../lib/api'
+import { formatMoneyIn, storeEntryCurrency, storedEntryCurrency } from '../lib/currency'
+import type { EntryCurrency } from '../lib/currency'
 import { today } from '../lib/format'
+import { convertCadToPhp, describeRate } from '../lib/fx'
+import { useCadRate } from '../hooks/useCadRate'
 import type { Category, IncomeSource } from '../types'
 
 type Props = {
@@ -61,6 +65,7 @@ function EntryForm({
   const [sourceId, setSourceId] = useState(sources[0]?.id ?? '')
   const [newName, setNewName] = useState('')
   const [amount, setAmount] = useState('')
+  const [typedIn, setTypedIn] = useState(storedEntryCurrency)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -86,6 +91,21 @@ function EntryForm({
       : (groups[0]?.id ?? NEW_GROUP)
   const addingGroup = selected === NEW_GROUP
 
+  const inCad = typedIn === 'CAD'
+  const { rate, unavailable } = useCadRate(inCad)
+  const typed = Number(amount)
+  // What the typed CAD figure will be saved as, for the hint under the field.
+  const preview =
+    inCad && rate && amount !== '' && Number.isFinite(typed) && typed > 0
+      ? convertCadToPhp(typed, rate.rate)
+      : null
+
+  function chooseTypedIn(code: EntryCurrency) {
+    storeEntryCurrency(code)
+    setTypedIn(code)
+    setError(null)
+  }
+
   function chooseGroup(id: string) {
     if (income) setSourceId(id)
     else setCategoryId(id)
@@ -98,6 +118,12 @@ function EntryForm({
     const value = Number(amount)
     if (!Number.isFinite(value) || value <= 0) {
       setError('Enter an amount greater than zero.')
+      return
+    }
+    if (inCad && !rate) {
+      setError(
+        'No exchange rate yet — enter the amount in PHP, or reconnect and try again.',
+      )
       return
     }
 
@@ -117,8 +143,12 @@ function EntryForm({
         }
       }
 
-      // Guard against float drift from inputs like 19.99 + 0.1.
-      const rounded = Math.round(value * 100) / 100
+      // Guard against float drift from inputs like 19.99 + 0.1. A CAD figure
+      // is converted here, once; what is stored is pesos like everything else.
+      const rounded =
+        inCad && rate
+          ? convertCadToPhp(value, rate.rate)
+          : Math.round(value * 100) / 100
       const trimmed = note.trim() || null
 
       if (income) {
@@ -232,21 +262,56 @@ function EntryForm({
       )}
 
       <div className={FIELD}>
-        <label htmlFor="amount" className={LABEL}>
-          Amount
+        {/* The conversion rides on the label line rather than under the
+            field: a line below would make this the one taller field, and the
+            row aligns on bottoms, so every other field would drop to meet it. */}
+        <label htmlFor="amount" className={`${LABEL} whitespace-nowrap`}>
+          {inCad ? 'Amount (CAD)' : 'Amount'}
+          {inCad && (
+            <span
+              className="font-normal text-muted"
+              aria-live="polite"
+              title={rate ? describeRate(rate) : undefined}
+            >
+              {' · '}
+              {rate
+                ? preview === null
+                  ? `${formatMoneyIn('PHP', rate.rate)} per CAD`
+                  : `≈ ${formatMoneyIn('PHP', preview)}`
+                : unavailable
+                  ? 'no rate — use PHP'
+                  : 'fetching rate…'}
+            </span>
+          )}
         </label>
-        <input
-          id="amount"
-          type="number"
-          className="input w-28 tabular-nums max-sm:w-full"
-          inputMode="decimal"
-          step="0.01"
-          min="0.01"
-          required
-          placeholder="0.00"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-        />
+        <div className="flex gap-2">
+          <input
+            id="amount"
+            type="number"
+            className="input w-28 tabular-nums max-sm:w-full max-sm:flex-1"
+            inputMode="decimal"
+            step="0.01"
+            min="0.01"
+            required
+            placeholder="0.00"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+          {/* Which currency the figure is typed in. Saved as PHP either way. */}
+          <div className="flex gap-1" role="group" aria-label="Typed in">
+            {(['PHP', 'CAD'] as const).map((code) => (
+              <button
+                key={code}
+                type="button"
+                className="btn-toggle px-2 text-xs"
+                aria-pressed={typedIn === code}
+                onClick={() => chooseTypedIn(code)}
+              >
+                {code}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className={`${FIELD} min-w-40 flex-1`}>

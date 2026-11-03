@@ -3,7 +3,9 @@ import type { FormEvent } from 'react'
 import { deleteBalance, saveAccount, saveBalance } from '../lib/api'
 import { ACCOUNT_KINDS } from '../lib/analytics'
 import { formatMonth, formatMonthAbbr, monthEnd, parseDay } from '../lib/format'
-import { useCurrency } from '../lib/currency'
+import { formatMoneyIn, useCurrency } from '../lib/currency'
+import { convertCadToPhp, describeRate } from '../lib/fx'
+import { useCadRate } from '../hooks/useCadRate'
 import type { Account, AccountKind, Balance } from '../types'
 
 type Props = {
@@ -69,6 +71,12 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
   const [year, setYear] = useState(() => now.getFullYear())
   const [month, setMonth] = useState(() => now.getMonth())
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  // Accounts whose figure is being typed in CAD. Per row, because a Canadian
+  // bank account and a peso one are entered side by side.
+  const [cadAccounts, setCadAccounts] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const { rate, unavailable } = useCadRate(cadAccounts.size > 0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
@@ -106,16 +114,44 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
       })
   }, [accounts, balances, asOf])
 
+  // A CAD field starts empty rather than on the peso baseline, so a PHP figure
+  // is never read back as CAD.
   const textFor = (row: Row) =>
     drafts[row.account.id] ??
-    (row.baseline === null ? '' : String(row.baseline))
+    (row.baseline === null || cadAccounts.has(row.account.id)
+      ? ''
+      : String(row.baseline))
+
+  /**
+   * What a typed field would store, in pesos. `null` is cleared, as with
+   * `parseAmount`; `undefined` is a figure that cannot be saved — mistyped, or
+   * in CAD with no rate yet to convert it at.
+   */
+  const valueFor = (row: Row) => {
+    const value = parseAmount(drafts[row.account.id] ?? '')
+    if (value == null || !cadAccounts.has(row.account.id)) return value
+    return rate ? convertCadToPhp(value, rate.rate) : undefined
+  }
+
+  function toggleCad(id: string) {
+    setCadAccounts((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+    // Whatever was typed was in the other currency.
+    setDrafts((current) => {
+      const next = { ...current }
+      delete next[id]
+      return next
+    })
+  }
 
   // What Save would actually write. Untouched fields are not changes, and
   // neither is typing the figure that was already there.
   const changed = rows.filter((row) => {
-    const text = drafts[row.account.id]
-    if (text === undefined) return false
-    const value = parseAmount(text)
+    if (drafts[row.account.id] === undefined) return false
+    const value = valueFor(row)
     return value !== undefined && value !== row.baseline
   })
 
@@ -135,6 +171,7 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
     // than from an effect watching the month: this is the only thing that
     // moves it, and an effect would re-render the whole list a second time.
     setDrafts({})
+    setCadAccounts(new Set())
     setError(null)
     setSaved(null)
   }
@@ -153,7 +190,7 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
     setBusy(true)
     try {
       for (const row of changed) {
-        const value = parseAmount(drafts[row.account.id])
+        const value = valueFor(row)
         if (value === null) {
           // Cleared. Only a reading taken for this month can be withdrawn; a
           // figure that was only ever carried forward has no row to remove.
@@ -269,13 +306,15 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
                 <ul className="mt-1.5">
                   {group.map((row) => {
                     const text = textFor(row)
-                    const value = parseAmount(text)
+                    const inCad = cadAccounts.has(row.account.id)
+                    const value = valueFor(row)
                     const isChanged =
                       drafts[row.account.id] !== undefined &&
                       value !== undefined &&
                       value !== row.baseline
                     const isInvalid =
-                      drafts[row.account.id] !== undefined && value === undefined
+                      drafts[row.account.id] !== undefined &&
+                      parseAmount(text) === undefined
 
                     return (
                       <li
@@ -296,7 +335,15 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
                           {/* Where the figure in the box came from, so a
                               carried number is never mistaken for a reading. */}
                           <span className="sub">
-                            {isChanged
+                            {inCad
+                              ? !rate
+                                ? unavailable
+                                  ? 'no exchange rate — reconnect, or switch back to PHP'
+                                  : 'fetching today’s rate…'
+                                : value != null && drafts[row.account.id] !== undefined
+                                  ? `≈ ${formatMoneyIn('PHP', value)} · ${describeRate(rate)}`
+                                  : `in CAD · ${describeRate(rate)}`
+                              : isChanged
                               ? 'will be saved'
                               : row.carriedFrom
                                 ? `carried from ${formatMonthAbbr(
@@ -323,15 +370,31 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
                           inputMode="decimal"
                           step="0.01"
                           min="0"
-                          placeholder="—"
+                          placeholder={inCad ? 'CAD' : '—'}
                           value={text}
-                          onChange={(e) =>
-                            setDrafts((current) => ({
-                              ...current,
-                              [row.account.id]: e.target.value,
-                            }))
-                          }
+                          onChange={(e) => {
+                            const typed = e.target.value
+                            setDrafts((current) => {
+                              // An emptied CAD field is back to untouched, not
+                              // a cleared reading: it never showed one.
+                              if (inCad && typed === '') {
+                                const next = { ...current }
+                                delete next[row.account.id]
+                                return next
+                              }
+                              return { ...current, [row.account.id]: typed }
+                            })
+                          }}
                         />
+                        <button
+                          type="button"
+                          className="btn-toggle px-2 text-xs"
+                          aria-pressed={inCad}
+                          aria-label={`Enter ${row.account.name} in CAD`}
+                          onClick={() => toggleCad(row.account.id)}
+                        >
+                          CAD
+                        </button>
                       </li>
                     )
                   })}
@@ -372,7 +435,7 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
           <span className="text-xs text-muted">
             {formatMoney(
               changed.reduce((sum, row) => {
-                const value = parseAmount(drafts[row.account.id])
+                const value = valueFor(row)
                 return sum + ((value ?? 0) - (row.baseline ?? 0))
               }, 0),
             )}{' '}

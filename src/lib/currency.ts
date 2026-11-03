@@ -2,7 +2,9 @@ import { createContext, useContext } from 'react'
 
 /**
  * Amounts are stored as plain numbers, so switching currency relabels the
- * existing figures — it does not convert them.
+ * existing figures — it does not convert them. The one conversion is on the
+ * way in: a figure typed in CAD is turned into PHP before it is saved (see
+ * ./fx and `EntryCurrency` below).
  */
 export const CURRENCIES = [
   { code: 'CAD', label: 'CAD $', locale: 'en-CA' },
@@ -77,6 +79,31 @@ export function storedCurrency(): CurrencyCode {
 export function storeCurrency(code: CurrencyCode) {
   try {
     localStorage.setItem(STORAGE_KEY, code)
+  } catch {
+    // A setting we cannot persist is not worth failing a render over.
+  }
+}
+
+/**
+ * What the entry form's amount is typed in. Stored figures are PHP either way;
+ * CAD is converted at today's rate on save.
+ */
+export type EntryCurrency = 'PHP' | 'CAD'
+
+const ENTRY_STORAGE_KEY = 'budget.entryCurrency'
+
+export function storedEntryCurrency(): EntryCurrency {
+  try {
+    if (localStorage.getItem(ENTRY_STORAGE_KEY) === 'CAD') return 'CAD'
+  } catch {
+    // Fall through to the default.
+  }
+  return 'PHP'
+}
+
+export function storeEntryCurrency(code: EntryCurrency) {
+  try {
+    localStorage.setItem(ENTRY_STORAGE_KEY, code)
   } catch {
     // A setting we cannot persist is not worth failing a render over.
   }

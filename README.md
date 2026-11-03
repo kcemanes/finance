@@ -357,6 +357,13 @@ there is an FX rate stored per snapshot to convert with, an account in another
 currency is better left out — which is what the spreadsheet this replaces was
 already doing by hand.
 
+The one conversion is on the way in. The entry form and each row of the
+month-end balances can take a figure typed in CAD, which
+[`fx.ts`](src/lib/fx.ts) turns into PHP at today's rate (Frankfurter's copy
+of the ECB reference rate, cached in local storage so it works offline) before
+it is saved. What is stored is still a plain peso number — no rate or original
+CAD figure is kept with it — so the totals above stay one currency.
+
 ### What the sync engine had to learn
 
 Two changes, both in the merge rather than the transport.

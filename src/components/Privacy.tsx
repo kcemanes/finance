@@ -5,7 +5,7 @@ import ThemeToggle from './ThemeToggle'
 // same address Google's consent screen points people to.
 const CONTACT_EMAIL = 'senamec@gmail.com'
 
-const EFFECTIVE = 'October 8, 2026'
+const EFFECTIVE = 'November 3, 2026'
 
 const SECTIONS: { title: string; body: string[] }[] = [
   {
@@ -26,7 +26,8 @@ const SECTIONS: { title: string; body: string[] }[] = [
     title: 'Where it is stored',
     body: [
       'Your account and records are stored with Supabase, which provides the database and sign-in. Row Level Security in the database means each account can only read and write its own rows.',
-      'So the app works offline, a copy of your records is kept in your browser (IndexedDB), along with a few preferences in local storage — theme, currency, and which account is signed in. Signing out deletes that copy from the device.',
+      'So the app works offline, a copy of your records is kept in your browser (IndexedDB), along with a few preferences in local storage — theme, currency, and which account is signed in — and the last exchange rate fetched. Signing out deletes that copy of your records from the device.',
+      'When you enter an amount in CAD, the app fetches that day’s CAD to PHP exchange rate from Frankfurter (api.frankfurter.dev), which publishes the European Central Bank’s reference rates. The request asks only for the rate; none of your records or account details are sent with it.',
       'The site itself is hosted on GitHub Pages, which, like any web host, may log basic request information such as IP addresses.',
     ],
   },
