@@ -33,7 +33,7 @@ function rangeName(months: number) {
 
 function Charts({ userId }: { userId: string }) {
   const { formatMoney } = useCurrency()
-  const [range, setRange] = useState<(typeof RANGES)[number]>(6)
+  const [range, setRange] = useState<(typeof RANGES)[number]>(12)
 
   const year = now.getFullYear()
   const month = now.getMonth()
@@ -101,46 +101,6 @@ function Charts({ userId }: { userId: string }) {
         <p className="my-8 text-center text-muted">Loading…</p>
       ) : (
         <>
-          {hasIncome ? (
-            <section className="my-8">
-              <div className="flex flex-wrap justify-center gap-x-12 gap-y-5 text-center max-sm:gap-x-6">
-                <div>
-                  <h2 className="stat-label">In</h2>
-                  <p className="stat-figure-sm text-income-strong">
-                    {formatMoney(earned)}
-                  </p>
-                </div>
-                <div>
-                  <h2 className="stat-label">Out</h2>
-                  <p className="stat-figure-sm text-ink">{formatMoney(spent)}</p>
-                </div>
-                <div>
-                  <h2 className="stat-label">Net</h2>
-                  <p
-                    className={`stat-figure-sm ${
-                      net < 0 ? 'text-overspend-strong' : 'text-income-strong'
-                    }`}
-                  >
-                    {net < 0 ? '−' : '+'}
-                    {formatMoney(Math.abs(net))}
-                  </p>
-                </div>
-              </div>
-              <p className="stat-note mt-3 text-center">
-                {rangeLabel} · {net < 0 ? 'losing' : 'keeping'}{' '}
-                {formatMoney(Math.abs(net) / range)} a month on average
-              </p>
-            </section>
-          ) : (
-            <section className="my-8 text-center">
-              <h2 className="stat-label">Spent in the last {spanName}</h2>
-              <p className="stat-figure">{formatMoney(spent)}</p>
-              <p className="stat-note">
-                {rangeLabel} · {formatMoney(spent / range)} a month on average
-              </p>
-            </section>
-          )}
-
           {spent === 0 && earned === 0 ? (
             <p className="my-12 text-center text-muted">
               Nothing recorded in this range yet. Add an expense or an income
@@ -353,6 +313,48 @@ function Charts({ userId }: { userId: string }) {
                 </section>
               )}
             </>
+          )}
+
+          {/* The totals come after the charts: the shape of the months is
+              what the tab is for, and the sums read as its conclusion. */}
+          {hasIncome ? (
+            <section className="my-8">
+              <div className="flex flex-wrap justify-center gap-x-12 gap-y-5 text-center max-sm:gap-x-6">
+                <div>
+                  <h2 className="stat-label">In</h2>
+                  <p className="stat-figure-sm text-income-strong">
+                    {formatMoney(earned)}
+                  </p>
+                </div>
+                <div>
+                  <h2 className="stat-label">Out</h2>
+                  <p className="stat-figure-sm text-ink">{formatMoney(spent)}</p>
+                </div>
+                <div>
+                  <h2 className="stat-label">Net</h2>
+                  <p
+                    className={`stat-figure-sm ${
+                      net < 0 ? 'text-overspend-strong' : 'text-income-strong'
+                    }`}
+                  >
+                    {net < 0 ? '−' : '+'}
+                    {formatMoney(Math.abs(net))}
+                  </p>
+                </div>
+              </div>
+              <p className="stat-note mt-3 text-center">
+                {rangeLabel} · {net < 0 ? 'losing' : 'keeping'}{' '}
+                {formatMoney(Math.abs(net) / range)} a month on average
+              </p>
+            </section>
+          ) : (
+            <section className="my-8 text-center">
+              <h2 className="stat-label">Spent in the last {spanName}</h2>
+              <p className="stat-figure">{formatMoney(spent)}</p>
+              <p className="stat-note">
+                {rangeLabel} · {formatMoney(spent / range)} a month on average
+              </p>
+            </section>
           )}
         </>
       )}
