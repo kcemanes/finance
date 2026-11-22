@@ -23,6 +23,12 @@ type Props = {
    */
   kind: Kind
   onKindChange: (kind: Kind) => void
+  /**
+   * The date the form starts on, as YYYY-MM-DD: today in the current month,
+   * or a day inside whichever earlier month the view has stepped back to, so
+   * backfilling a past month records into it.
+   */
+  defaultDay: string
   /** These let the picker show a category or source the moment it is created. */
   onCategoryAdded: (category: Category) => void
   onSourceAdded: (source: IncomeSource) => void
@@ -55,10 +61,19 @@ function EntryForm({
   sources,
   kind,
   onKindChange,
+  defaultDay,
   onCategoryAdded,
   onSourceAdded,
 }: Props) {
-  const [on, setOn] = useState(today())
+  const [on, setOn] = useState(defaultDay)
+  // Stepping to another month moves the date with it. Adjusted during render
+  // rather than from an effect, so the old date is never painted first; a date
+  // picked by hand survives until the month changes.
+  const [dayFor, setDayFor] = useState(defaultDay)
+  if (dayFor !== defaultDay) {
+    setDayFor(defaultDay)
+    setOn(defaultDay)
+  }
   // One remembered pick per direction, so switching across and back does not
   // discard the category you were entering against.
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? '')

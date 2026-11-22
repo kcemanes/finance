@@ -16,7 +16,7 @@ import { signOut } from '../lib/auth'
 import type { Account } from '../lib/auth'
 import { CURRENCIES, useCurrency } from '../lib/currency'
 import type { CurrencyCode } from '../lib/currency'
-import { formatMonth, monthBounds } from '../lib/format'
+import { formatMonth, monthBounds, today } from '../lib/format'
 import { dismissRejected, startSync } from '../lib/sync'
 import { useFinanceData } from '../hooks/useFinanceData'
 import { useSyncState } from '../hooks/useSyncState'
@@ -161,6 +161,7 @@ function Dashboard({ account }: { account: Account }) {
             sources={sources}
             kind={kind}
             onKindChange={setKind}
+            defaultDay={isCurrentMonth ? today() : bounds.from}
             onCategoryAdded={(category) =>
               setCategories((current) =>
                 [...current, category].sort((a, b) =>
