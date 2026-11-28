@@ -138,7 +138,6 @@ function Dashboard({ account }: { account: Account }) {
           type="button"
           className={STEP}
           onClick={() => shiftMonth(1)}
-          disabled={isCurrentMonth}
           aria-label="Next month"
         >
           ›

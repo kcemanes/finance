@@ -8,7 +8,6 @@ import {
 } from '../lib/api'
 import { formatMoneyIn, storeEntryCurrency, storedEntryCurrency } from '../lib/currency'
 import type { EntryCurrency } from '../lib/currency'
-import { today } from '../lib/format'
 import { convertCadToPhp, describeRate } from '../lib/fx'
 import { useCadRate } from '../hooks/useCadRate'
 import type { Category, IncomeSource } from '../types'
@@ -25,8 +24,8 @@ type Props = {
   onKindChange: (kind: Kind) => void
   /**
    * The date the form starts on, as YYYY-MM-DD: today in the current month,
-   * or a day inside whichever earlier month the view has stepped back to, so
-   * backfilling a past month records into it.
+   * or a day inside whichever other month the view has stepped to, so
+   * backfilling a past month or planning a future one records into it.
    */
   defaultDay: string
   /** These let the picker show a category or source the moment it is created. */
@@ -231,7 +230,6 @@ function EntryForm({
           className="input"
           required
           value={on}
-          max={today()}
           onChange={(e) => setOn(e.target.value)}
         />
       </div>

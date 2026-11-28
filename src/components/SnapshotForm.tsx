@@ -64,7 +64,7 @@ function parseAmount(text: string): number | null | undefined {
  */
 function SnapshotForm({ userId, accounts, balances }: Props) {
   const { formatMoney } = useCurrency()
-  // Always opens on the current month; earlier months are a step back. Read
+  // Always opens on the current month; other months are a step either way. Read
   // when the form mounts rather than when the module loads, so an app left
   // open across a month boundary still opens on the right month.
   const [now] = useState(() => new Date())
@@ -159,8 +159,6 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
     const text = drafts[row.account.id]
     return text !== undefined && parseAmount(text) === undefined
   })
-
-  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth()
 
   function shiftMonth(delta: number) {
     const shifted = new Date(year, month + delta, 1)
@@ -282,7 +280,6 @@ function SnapshotForm({ userId, accounts, balances }: Props) {
           type="button"
           className={STEP}
           onClick={() => shiftMonth(1)}
-          disabled={isCurrentMonth}
           aria-label="Next month"
         >
           ›
