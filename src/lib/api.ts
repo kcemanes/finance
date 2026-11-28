@@ -92,6 +92,16 @@ export async function createIncome(
   void requestSync(userId)
 }
 
+/** Puts an expense in, or takes it out of, every total. */
+export async function setExpenseIncluded(
+  userId: string,
+  id: string,
+  included: boolean,
+): Promise<void> {
+  await store.setExpenseIncluded(userId, id, included)
+  void requestSync(userId)
+}
+
 export async function deleteExpense(userId: string, id: string): Promise<void> {
   await store.removeExpense(userId, id)
   void requestSync(userId)

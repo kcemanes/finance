@@ -51,6 +51,7 @@ export type OutboxOp = {
   kind:
     | 'category.create'
     | 'expense.create'
+    | 'expense.update'
     | 'expense.delete'
     | 'source.create'
     | 'income.create'
@@ -86,19 +87,25 @@ export type RemoteRows = {
  * already exist on the server rather than a first sighting of a new one. It
  * decides who wins in `replaceFromRemote` when a pulled row and a still-queued
  * local row share an id; the note there explains why the answer differs.
+ *
+ * `update` is the one exception to "written once": an expense can be flipped
+ * in or out of the totals after it was created. That op edits a row the server
+ * already has, so while it is queued the local row wins the way an
+ * `overwrites` store's would — but only for that row, not the whole store.
  */
 const SYNCED: {
   store: keyof RemoteRows
   create: OutboxOp['kind']
+  update: OutboxOp['kind'] | null
   remove: OutboxOp['kind'] | null
   overwrites: boolean
 }[] = [
-  { store: 'categories', create: 'category.create', remove: null, overwrites: false },
-  { store: 'expenses', create: 'expense.create', remove: 'expense.delete', overwrites: false },
-  { store: 'income_sources', create: 'source.create', remove: null, overwrites: false },
-  { store: 'incomes', create: 'income.create', remove: 'income.delete', overwrites: false },
-  { store: 'accounts', create: 'account.set', remove: null, overwrites: true },
-  { store: 'balances', create: 'balance.set', remove: 'balance.delete', overwrites: true },
+  { store: 'categories', create: 'category.create', update: null, remove: null, overwrites: false },
+  { store: 'expenses', create: 'expense.create', update: 'expense.update', remove: 'expense.delete', overwrites: false },
+  { store: 'income_sources', create: 'source.create', update: null, remove: null, overwrites: false },
+  { store: 'incomes', create: 'income.create', update: null, remove: 'income.delete', overwrites: false },
+  { store: 'accounts', create: 'account.set', update: null, remove: null, overwrites: true },
+  { store: 'balances', create: 'balance.set', update: null, remove: 'balance.delete', overwrites: true },
 ]
 
 export type GroupName = 'category' | 'source'
@@ -220,6 +227,9 @@ export async function loadExpenses(
       (row) =>
         row.user_id === userId && row.spent_on >= from && row.spent_on <= to,
     )
+    // Rows cached before the flag existed have no field at all, and every one
+    // of them was counted.
+    .map((row) => ({ ...row, include_in_totals: row.include_in_totals ?? true }))
     .sort(
       (a, b) =>
         b.spent_on.localeCompare(a.spent_on) ||
@@ -341,6 +351,7 @@ export async function addExpense(
     id: uuid(),
     user_id: userId,
     created_at: new Date().toISOString(),
+    include_in_totals: true,
     ...input,
   }
 
@@ -356,12 +367,61 @@ export async function addExpense(
       spent_on: row.spent_on,
       amount: row.amount,
       note: row.note,
+      include_in_totals: row.include_in_totals,
       created_at: row.created_at,
     },
   })
 
   notifyChanged()
   return row
+}
+
+/**
+ * Puts an expense in or takes it out of the totals.
+ *
+ * If the expense has not reached the server yet, its queued create is
+ * rewritten instead of queueing a second op behind it — the server should hear
+ * about the row once, already in its final state. Otherwise the op is an
+ * update rather than an upsert, so that flipping an expense another device has
+ * since deleted cannot bring it back.
+ */
+export async function setExpenseIncluded(
+  userId: string,
+  id: string,
+  included: boolean,
+): Promise<void> {
+  const existing = (await db.readAll<LocalExpense>('expenses')).find(
+    (row) => row.id === id && row.user_id === userId,
+  )
+  if (!existing) return
+
+  await db.put('expenses', { ...existing, include_in_totals: included })
+
+  const queued = await readOutbox(userId)
+  const pendingCreate = queued.find(
+    (op) => op.kind === 'expense.create' && op.row.id === id,
+  )
+
+  if (pendingCreate) {
+    await db.put('outbox', {
+      ...pendingCreate,
+      row: { ...pendingCreate.row, include_in_totals: included },
+    })
+  } else {
+    // Only the latest flip matters, so an earlier one still waiting is dropped
+    // rather than sent first and immediately undone.
+    const stale = queued
+      .filter((op) => op.kind === 'expense.update' && op.row.id === id)
+      .map((op) => op.seq)
+    await dropOps(stale)
+    await db.append({
+      user_id: userId,
+      kind: 'expense.update',
+      row: { id, include_in_totals: included },
+    })
+  }
+
+  notifyChanged()
 }
 
 export async function addIncome(
@@ -516,6 +576,14 @@ async function removeEntry(
     (op) => op.kind === kinds.create && op.row.id === id,
   )
 
+  // An update still waiting for a row that is about to go would only be
+  // describing nothing to the server.
+  await dropOps(
+    queued
+      .filter((op) => op.kind === 'expense.update' && op.row.id === id)
+      .map((op) => op.seq),
+  )
+
   if (pendingCreate) {
     await db.remove('outbox', [pendingCreate.seq])
   } else {
@@ -630,18 +698,28 @@ export async function replaceFromRemote(
 
     const kept: Owned[] = []
     const deletedLocally = new Set<string>()
+    const editedLocally = new Map<string, Owned>()
 
     for (const op of queued) {
       const id = op.row.id as string
       if (op.kind === table.create) {
         const row = localById.get(id)
         if (row) kept.push(row)
+      } else if (table.update && op.kind === table.update) {
+        const row = localById.get(id)
+        if (row) editedLocally.set(id, row)
       } else if (table.remove && op.kind === table.remove) {
         deletedLocally.add(id)
       }
     }
 
-    const incoming: Owned[] = remote[table.store]
+    // A queued edit is of a row the server already has, so it wins the way an
+    // `overwrites` store's row would below — and only while it is queued. If
+    // the row is gone from the server it is not resurrected: the update would
+    // land on nothing anyway.
+    const incoming: Owned[] = remote[table.store].map(
+      (row) => editedLocally.get(row.id) ?? row,
+    )
     const incomingIds = new Set(incoming.map((row) => row.id))
     const keptIds = new Set(kept.map((row) => row.id))
 

@@ -55,6 +55,12 @@ create table if not exists public.expenses (
   spent_on date not null default current_date,
   amount numeric(12, 2) not null check (amount > 0),
   note text check (note is null or char_length(note) <= 200),
+
+  -- On by default. Off keeps the row in the ledger but leaves it out of every
+  -- total — the month's figure, the category targets, the charts — for money
+  -- that went out but is not really spending: a cost that will be reimbursed,
+  -- a one-off that would drown out the trend.
+  include_in_totals boolean not null default true,
   created_at timestamptz not null default now(),
 
   -- Composite FK: an expense can only point at a category owned by the SAME
@@ -66,6 +72,10 @@ create table if not exists public.expenses (
     on update cascade
     on delete restrict
 );
+
+-- For a project that created the table before the column existed.
+alter table public.expenses
+  add column if not exists include_in_totals boolean not null default true;
 
 create index if not exists expenses_user_spent_on_idx
   on public.expenses (user_id, spent_on desc);

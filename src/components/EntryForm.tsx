@@ -230,6 +230,10 @@ function EntryForm({
           className="input"
           required
           value={on}
+          // Not a limit: any real date, past or future, is allowed. Without a
+          // max, Chrome sizes the year for six digits (up to 275760), and the
+          // wider field pushes the note onto a row of its own.
+          max="9999-12-31"
           onChange={(e) => setOn(e.target.value)}
         />
       </div>

@@ -121,6 +121,10 @@ function subject(op: OutboxOp): string {
       return `expense of ${String(op.row.amount)} on ${String(op.row.spent_on)}`
     case 'income.create':
       return `income of ${String(op.row.amount)} on ${String(op.row.received_on)}`
+    case 'expense.update':
+      return op.row.include_in_totals
+        ? 'putting an expense back in the totals'
+        : 'leaving an expense out of the totals'
     case 'expense.delete':
       return 'a deleted expense'
     case 'income.delete':
@@ -168,6 +172,14 @@ function apply(op: OutboxOp) {
       return supabase.from('expenses').upsert(op.row, { onConflict: 'id' })
     case 'income.create':
       return supabase.from('incomes').upsert(op.row, { onConflict: 'id' })
+    // An update, not an upsert: the row may have been deleted on another
+    // device since, and this must not bring it back. An update that matches
+    // nothing still succeeds, which is the right outcome for that case.
+    case 'expense.update':
+      return supabase
+        .from('expenses')
+        .update({ include_in_totals: op.row.include_in_totals })
+        .eq('id', op.row.id as string)
     case 'expense.delete':
       return supabase.from('expenses').delete().eq('id', op.row.id as string)
     case 'income.delete':
@@ -375,7 +387,10 @@ async function pull(userId: string): Promise<RemoteRows> {
   const [categories, expenses, sources, incomes, accounts, balances] =
     await Promise.all([
       selectAll('expense_categories', 'id, name, monthly_budget'),
-      selectAll('expenses', 'id, category_id, spent_on, amount, note, created_at'),
+      selectAll(
+        'expenses',
+        'id, category_id, spent_on, amount, note, include_in_totals, created_at',
+      ),
       selectAll('income_sources', 'id, name, expected_monthly'),
       selectAll('incomes', 'id, source_id, received_on, amount, note, created_at'),
       selectAll('accounts', 'id, name, kind, is_active, include_in_net_worth'),

@@ -11,7 +11,11 @@ import TargetSummary from './TargetSummary'
 import ThemeToggle from './ThemeToggle'
 import ViewTabs from './ViewTabs'
 import type { TabId } from './ViewTabs'
-import { categoryTargets, sourceTargets } from '../lib/analytics'
+import {
+  categoryTargets,
+  countedExpenses,
+  sourceTargets,
+} from '../lib/analytics'
 import { signOut } from '../lib/auth'
 import type { Account } from '../lib/auth'
 import { CURRENCIES, useCurrency } from '../lib/currency'
@@ -56,7 +60,9 @@ function Dashboard({ account }: { account: Account }) {
   // The hero figure stays what it always was — what this month cost — so the
   // number in that position still means what it used to. Income and the net
   // go underneath it rather than replacing it.
-  const total = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const counted = countedExpenses(expenses)
+  const hiddenCount = expenses.length - counted.length
+  const total = counted.reduce((sum, expense) => sum + expense.amount, 0)
   const earned = incomes.reduce((sum, income) => sum + income.amount, 0)
   const net = earned - total
 
@@ -122,6 +128,9 @@ function Dashboard({ account }: { account: Account }) {
           <p className="stat-figure">{formatMoney(total)}</p>
           <p className="stat-note">
             {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
+            {/* Said out loud, so a figure that is lower than the ledger adds
+                up to is never a mystery. */}
+            {hiddenCount > 0 && ` (${hiddenCount} not in total)`}
             {/* An account that records no income sees exactly what it saw
                 before any of this existed. */}
             {earned > 0 && (

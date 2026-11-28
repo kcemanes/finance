@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { deleteExpense, deleteIncome } from '../lib/api'
+import { deleteExpense, deleteIncome, setExpenseIncluded } from '../lib/api'
 import { useCurrency } from '../lib/currency'
 import { formatDay } from '../lib/format'
 import type { Category, Expense, Income, IncomeSource } from '../types'
@@ -23,6 +23,8 @@ type Entry = {
   group: string
   note: string | null
   amount: number
+  /** Always true for income, which has no such flag. */
+  counted: boolean
   created_at: string
 }
 
@@ -34,6 +36,10 @@ type Entry = {
  * colour. A `+` is text and survives being read aloud, printed in greyscale,
  * or seen by someone who cannot separate the two hues; the colour only
  * confirms it.
+ *
+ * Expenses get an extra "In total" checkbox. Unticking one keeps the row here
+ * but leaves it out of the month's figure, the targets and the charts; the
+ * row is dimmed so the list still visibly disagrees with the total on purpose.
  */
 function Ledger({ userId, kind, expenses, incomes, categories, sources }: Props) {
   const { formatMoney } = useCurrency()
@@ -52,6 +58,7 @@ function Ledger({ userId, kind, expenses, incomes, categories, sources }: Props)
           group: sourceNames.get(entry.source_id) ?? 'Unattributed',
           note: entry.note,
           amount: entry.amount,
+          counted: true,
           created_at: entry.created_at,
         }))
       : expenses.map((expense) => ({
@@ -62,6 +69,7 @@ function Ledger({ userId, kind, expenses, incomes, categories, sources }: Props)
           group: categoryNames.get(expense.category_id) ?? 'Uncategorised',
           note: expense.note,
           amount: expense.amount,
+          counted: expense.include_in_totals !== false,
           created_at: expense.created_at,
         }))
   ).sort(
@@ -98,6 +106,11 @@ function Ledger({ userId, kind, expenses, incomes, categories, sources }: Props)
             <th scope="col" className="num">
               Amount
             </th>
+            {!income && (
+              <th scope="col" className="text-center whitespace-nowrap">
+                In total
+              </th>
+            )}
             <th scope="col">
               <span className="sr-only">Actions</span>
             </th>
@@ -105,18 +118,34 @@ function Ledger({ userId, kind, expenses, incomes, categories, sources }: Props)
         </thead>
         <tbody>
           {entries.map((entry) => (
-            <tr key={entry.id} className="hover:bg-accent-soft">
+            <tr
+              key={entry.id}
+              className={`hover:bg-accent-soft ${entry.counted ? '' : 'text-muted'}`}
+            >
               <td className="whitespace-nowrap">{formatDay(entry.on)}</td>
               <td>{entry.group}</td>
               <td className="text-muted">{entry.note}</td>
               <td
                 className={`num font-medium ${
                   entry.income ? 'text-income-strong' : ''
-                }`}
+                } ${entry.counted ? '' : 'line-through'}`}
               >
                 {entry.income ? '+' : '−'}
                 {formatMoney(entry.amount)}
               </td>
+              {!income && (
+                <td className="text-center">
+                  <input
+                    type="checkbox"
+                    className="accent-accent"
+                    checked={entry.counted}
+                    aria-label={`Include ${formatMoney(entry.amount)} ${entry.group} on ${formatDay(entry.on)} in totals`}
+                    onChange={(e) =>
+                      void setExpenseIncluded(userId, entry.id, e.target.checked)
+                    }
+                  />
+                </td>
+              )}
               <td className="text-right">
                 <button
                   type="button"

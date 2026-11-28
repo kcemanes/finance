@@ -20,6 +20,11 @@ export type Expense = {
   spent_on: string // YYYY-MM-DD
   amount: number
   note: string | null
+  /**
+   * False keeps the expense in the ledger but out of every total. Every total
+   * goes through `countedExpenses` in ./lib/analytics, which is what drops it.
+   */
+  include_in_totals: boolean
   created_at: string
 }
 

@@ -52,6 +52,18 @@ export type TargetRow = {
   target: number | null
 }
 
+/**
+ * The expenses that count towards a total — every one not flagged out of them.
+ *
+ * Every expense aggregation below goes through this, as does the month's
+ * figure on the dashboard, so an expense left out of the totals is left out of
+ * all of them at once rather than vanishing from one chart and not another.
+ * The ledger is the one place that still lists it.
+ */
+export function countedExpenses(expenses: Expense[]): Expense[] {
+  return expenses.filter((expense) => expense.include_in_totals !== false)
+}
+
 function monthKey(year: number, month: number) {
   return `${year}-${String(month + 1).padStart(2, '0')}`
 }
@@ -100,7 +112,7 @@ export function monthlyFlow(
     })
   }
 
-  for (const expense of expenses) {
+  for (const expense of countedExpenses(expenses)) {
     // spent_on is YYYY-MM-DD, so its first seven characters are the key.
     const bucket = buckets.get(expense.spent_on.slice(0, 7))
     // Anything outside the window belongs to a range the caller did not ask
@@ -162,7 +174,7 @@ export function categoryTotals(
   categories: Category[],
 ): GroupTotal[] {
   return rank(
-    expenses.map((e) => ({ id: e.category_id, amount: e.amount })),
+    countedExpenses(expenses).map((e) => ({ id: e.category_id, amount: e.amount })),
     new Map(categories.map((c) => [c.id, c.name])),
     'Uncategorised',
   )
@@ -210,7 +222,7 @@ export function categoryTargets(
   categories: Category[],
 ): TargetRow[] {
   return targets(
-    expenses.map((e) => ({ id: e.category_id, amount: e.amount })),
+    countedExpenses(expenses).map((e) => ({ id: e.category_id, amount: e.amount })),
     categories.map((c) => ({ id: c.id, name: c.name, target: c.monthly_budget })),
   )
 }
